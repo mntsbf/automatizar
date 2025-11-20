@@ -28,9 +28,16 @@ def _opencv_embedding(gray_face: np.ndarray) -> Optional[List[float]]:
 
     resized = cv2.resize(gray_face, (32, 32))
     vec = resized.astype(np.float32).flatten()
-    norm = np.linalg.norm(vec) or 1.0
-    vec /= norm
+    vec = _normalize(vec)
     return vec.tolist()
+
+
+def _normalize(arr: Sequence[float]) -> np.ndarray:
+    """Normaliza vectores para compararlos con coseno."""
+
+    vec = np.array(arr, dtype=np.float32)
+    norm = float(np.linalg.norm(vec)) or 1.0
+    return vec / norm
 
 
 def require_face_recognition():
@@ -130,23 +137,34 @@ def build_bank(records: Iterable[Tuple[int, str, str]]) -> List[KnownEmbedding]:
     for person_id, name, raw_vector in records:
         parsed = parse_embedding(raw_vector)
         if parsed:
-            bank.append(KnownEmbedding(person_id=person_id, person_name=name, vector=np.array(parsed)))
+            bank.append(
+                KnownEmbedding(
+                    person_id=person_id, person_name=name, vector=_normalize(parsed)
+                )
+            )
     return bank
 
 
-def best_match(encoding: Sequence[float], bank: Sequence[KnownEmbedding], tolerance: float = 0.45):
-    """Encuentra el match más cercano dentro del banco.
+def best_match(
+    encoding: Sequence[float],
+    bank: Sequence[KnownEmbedding],
+    tolerance: float = 0.55,
+):
+    """Encuentra el match más cercano usando similitud de coseno normalizada.
 
-    Devuelve (match, distancia). Si no cumple el ``tolerance`` devuelve (None, None).
+    Devuelve (match, similitud). Si no cumple el ``tolerance`` devuelve (None, None).
+    ``tolerance`` representa el mínimo de similitud (0-1) para aceptar un match.
     """
 
     if not bank:
         return None, None
 
-    sample = np.array(encoding)
-    distances = np.linalg.norm([sample - item.vector for item in bank], axis=1)
-    min_idx = int(np.argmin(distances))
-    min_dist = float(distances[min_idx])
-    if min_dist <= tolerance:
-        return bank[min_idx], min_dist
+    sample = _normalize(encoding)
+    bank_matrix = np.stack([item.vector for item in bank])
+    similarities = bank_matrix @ sample  # producto punto con vectores normalizados
+
+    max_idx = int(np.argmax(similarities))
+    max_sim = float(similarities[max_idx])
+    if max_sim >= tolerance:
+        return bank[max_idx], max_sim
     return None, None

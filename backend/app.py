@@ -139,9 +139,8 @@ def create_app(testing: bool = False) -> Flask:
 
         results = []
         for (top, right, bottom, left), encoding in detections:
-            match, dist = best_match(encoding, bank)
-            if match and dist is not None:
-                similarity = max(0.0, 1.0 - float(dist))
+            match, similarity = best_match(encoding, bank)
+            if match and similarity is not None:
                 camera_id = request.form.get("camera_id")
                 camera_ref = int(camera_id) if camera_id else None
                 alert = Alert(

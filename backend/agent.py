@@ -52,7 +52,7 @@ def ensure_local_camera() -> int:
     return camera.id
 
 
-def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float = 0.45):
+def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float = 0.55):
     app = create_app()
     with app.app_context():
         bank = load_bank_from_db()
@@ -73,13 +73,11 @@ def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float
             detections = detect_and_encode(frame)
 
             for (top, right, bottom, left), encoding in detections:
-                match, dist = best_match(encoding, bank, tolerance=tolerance)
+                match, similarity = best_match(encoding, bank, tolerance=tolerance)
                 label = "Desconocido"
                 color = (0, 0, 255)
-                similarity = 0.0
 
-                if match and dist is not None:
-                    similarity = max(0.0, 1.0 - float(dist))
+                if match and similarity is not None:
                     label = f"{match.person_name} ({similarity*100:.1f}%)"
                     color = (0, 255, 0)
 
@@ -121,7 +119,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Agente local de reconocimiento")
     parser.add_argument("--camera", default=0, help="Índice de webcam o URL RTSP")
     parser.add_argument("--camera-id", type=int, default=None, help="ID de cámara para registrar alertas")
-    parser.add_argument("--tolerance", type=float, default=0.45, help="Umbral de distancia para match")
+    parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=0.55,
+        help="Similitud mínima (0-1) para aceptar un match",
+    )
     return parser.parse_args()
 
 
