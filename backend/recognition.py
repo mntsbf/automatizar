@@ -11,8 +11,24 @@ import json
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Tuple
 
-import face_recognition
 import numpy as np
+
+try:  # Carga perezosa para no romper la app si falta la lib
+    import face_recognition  # type: ignore
+except ImportError:  # pragma: no cover - rama defensiva
+    face_recognition = None
+
+
+def require_face_recognition():
+    """Devuelve la librería o lanza un error descriptivo si no está instalada."""
+
+    if face_recognition is None:
+        raise RuntimeError(
+            "La dependencia opcional 'face_recognition' no está instalada. "
+            "Ejecuta 'pip install -r requirements.txt'. En Windows/macOS puede requerir "
+            "compilación de dlib; consulta README para prerequisitos."
+        )
+    return face_recognition
 
 
 def parse_embedding(vector: str) -> Optional[List[float]]:
@@ -42,18 +58,20 @@ def parse_embedding(vector: str) -> Optional[List[float]]:
 def encode_image_array(image: np.ndarray) -> Optional[List[float]]:
     """Extrae el embedding de la primera cara encontrada en la imagen."""
 
+    fr = require_face_recognition()
     rgb = image[:, :, ::-1]
-    locations = face_recognition.face_locations(rgb)
+    locations = fr.face_locations(rgb)
     if not locations:
         return None
-    encodings = face_recognition.face_encodings(rgb, known_face_locations=locations)
+    encodings = fr.face_encodings(rgb, known_face_locations=locations)
     return encodings[0].tolist() if encodings else None
 
 
 def encode_image_file(path: str) -> Optional[List[float]]:
     """Carga una imagen desde disco y devuelve el embedding de la primera cara."""
 
-    image = face_recognition.load_image_file(path)
+    fr = require_face_recognition()
+    image = fr.load_image_file(path)
     return encode_image_array(image)
 
 

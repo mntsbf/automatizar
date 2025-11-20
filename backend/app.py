@@ -8,11 +8,9 @@ from typing import List
 
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
-import face_recognition
-
 from .database import db
 from .models import Alert, Camera, Embedding, Person, Site
-from .recognition import best_match, build_bank, encode_image_array, parse_embedding
+from .recognition import best_match, build_bank, encode_image_array, parse_embedding, require_face_recognition
 
 
 def create_app(testing: bool = False) -> Flask:
@@ -92,7 +90,11 @@ def create_app(testing: bool = False) -> Flask:
 
         image_file = request.files["image"]
         image_bytes = image_file.read()
-        np_img = face_recognition.load_image_file(io.BytesIO(image_bytes))
+        try:
+            fr = require_face_recognition()
+        except RuntimeError as exc:
+            return {"error": str(exc)}, 503
+        np_img = fr.load_image_file(io.BytesIO(image_bytes))
         embedding = encode_image_array(np_img)
         if embedding is None:
             return {"error": "No se detectaron rostros en la imagen"}, 400
@@ -108,9 +110,13 @@ def create_app(testing: bool = False) -> Flask:
             return {"error": "Debes enviar un archivo 'image'"}, 400
 
         image_file = request.files["image"]
-        frame = face_recognition.load_image_file(io.BytesIO(image_file.read()))
-        locations = face_recognition.face_locations(frame)
-        encodings = face_recognition.face_encodings(frame, locations)
+        try:
+            fr = require_face_recognition()
+        except RuntimeError as exc:
+            return {"error": str(exc)}, 503
+        frame = fr.load_image_file(io.BytesIO(image_file.read()))
+        locations = fr.face_locations(frame)
+        encodings = fr.face_encodings(frame, locations)
 
         records = []
         persons = Person.query.all()

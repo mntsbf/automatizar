@@ -12,12 +12,11 @@ from datetime import datetime
 from typing import List
 
 import cv2
-import face_recognition
 
 from .app import create_app
 from .database import db
 from .models import Alert, Person
-from .recognition import best_match, build_bank
+from .recognition import best_match, build_bank, require_face_recognition
 
 
 def load_bank_from_db() -> List:
@@ -30,6 +29,11 @@ def load_bank_from_db() -> List:
 
 
 def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float = 0.45):
+    try:
+        require_face_recognition()
+    except RuntimeError as exc:
+        raise SystemExit(f"Dependencia faltante: {exc}")
+
     app = create_app()
     with app.app_context():
         bank = load_bank_from_db()

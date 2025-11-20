@@ -8,6 +8,7 @@ Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de
 ## Requisitos
 - Python 3.10+
 - `pip`
+- Dependencias del sistema para `face_recognition`/`dlib`: en Windows instala [Build Tools para Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) y ejecuta `pip install --upgrade pip setuptools wheel` antes de `pip install -r requirements.txt`. En Linux/macOS asegúrate de tener compiladores (``build-essential``) y ``cmake`` disponibles.
 
 ## Instalación y ejecución
 ### 1) Descarga del proyecto
@@ -27,6 +28,8 @@ pip install -r requirements.txt
 python -m backend.app
 ```
 La aplicación queda disponible en `http://localhost:5000`.
+
+> Nota: si omites `pip install -r requirements.txt`, las rutas que usan reconocimiento facial y el agente local mostrarán un mensaje de dependencia faltante pero el servidor aún podrá iniciar.
 
 ### 3) Probar reconocimiento en local
 1. Registra personas desde el panel y sube una foto en la sección **Embeddings desde foto** para generar el embedding automáticamente.
