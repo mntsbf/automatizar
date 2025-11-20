@@ -6,6 +6,9 @@ import os
 from datetime import datetime
 from typing import List
 
+import cv2
+import numpy as np
+
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from .database import db
