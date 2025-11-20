@@ -4,6 +4,7 @@ Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de
 - API REST para sitios, cámaras, personas, embeddings y alertas.
 - Panel web minimalista para ingresar datos, cargar rostros y visualizar alertas recientes.
 - Base de datos SQLite autocontenida.
+  - La base se crea por defecto en `backend/facehub.db`. Si ya tenías un `facehub.db` en la raíz del proyecto, el servidor lo detectará y lo reutilizará automáticamente para no perder embeddings previos.
 
 ## Requisitos
 - Python 3.10+
