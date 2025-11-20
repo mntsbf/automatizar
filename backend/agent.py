@@ -16,7 +16,7 @@ import cv2
 from .app import create_app
 from .database import db
 from .models import Alert, Person
-from .recognition import best_match, build_bank, require_face_recognition
+from .recognition import best_match, build_bank, detect_and_encode
 
 
 def load_bank_from_db() -> List:
@@ -29,11 +29,6 @@ def load_bank_from_db() -> List:
 
 
 def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float = 0.45):
-    try:
-        require_face_recognition()
-    except RuntimeError as exc:
-        raise SystemExit(f"Dependencia faltante: {exc}")
-
     app = create_app()
     with app.app_context():
         bank = load_bank_from_db()
@@ -49,11 +44,9 @@ def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float
                 print("No se pudo leer frame, saliendo...")
                 break
 
-            rgb = frame[:, :, ::-1]
-            locations = face_recognition.face_locations(rgb)
-            encodings = face_recognition.face_encodings(rgb, locations)
+            detections = detect_and_encode(frame)
 
-            for (top, right, bottom, left), encoding in zip(locations, encodings):
+            for (top, right, bottom, left), encoding in detections:
                 match, dist = best_match(encoding, bank, tolerance=tolerance)
                 label = "Desconocido"
                 color = (0, 0, 255)

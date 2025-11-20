@@ -8,7 +8,10 @@ Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de
 ## Requisitos
 - Python 3.10+
 - `pip`
-- Para habilitar reconocimiento facial (`face_recognition`/`dlib`), instala herramientas de compilación y CMake:
+- Hay dos modos de reconocimiento:
+  - **Modo completo (dlib/face_recognition)**: mayor precisión, requiere compilar `dlib` (Build Tools + CMake).
+  - **Modo liviano (OpenCV Haar)**: ya viene con `requirements.txt`, no necesita compilar nada. Usa cascadas Haar + vectores normalizados (precisión básica para pruebas locales).
+- Para habilitar el modo completo (`face_recognition`/`dlib`), instala herramientas de compilación y CMake:
   - Windows (guía rápida):
     1. Instala [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) eligiendo **Desktop development with C++** (incluye MSVC y el SDK de Windows).
     2. Instala [CMake](https://cmake.org/download/) marcando la opción de agregarlo al **PATH**.
@@ -35,9 +38,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python -m backend.app
 ```
-La aplicación queda disponible en `http://localhost:5000`.
+La aplicación queda disponible en `http://localhost:5000`. En este punto funcionará el modo liviano (detección con OpenCV). Si quieres embeddings más precisos, instala el modo completo opcional.
 
-> Nota: si no instalas el paquete opcional `face_recognition`, las rutas que procesan imágenes y el agente local mostrarán un mensaje de dependencia faltante, pero el servidor puede iniciar y el resto de la API funciona.
+> Nota: si no instalas el paquete opcional `face_recognition`, el sistema usa automáticamente el modo liviano de OpenCV (cascadas Haar + vectores normalizados). Funciona para pruebas, pero la precisión es menor.
 
 Para habilitar reconocimiento facial e ingesta de fotos, instala la dependencia opcional (tras cumplir los requisitos del sistema):
 ```bash

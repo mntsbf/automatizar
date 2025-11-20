@@ -1,8 +1,9 @@
 """Utilidades de reconocimiento facial y manejo de embeddings.
 
-Este módulo encapsula la lógica de extracción y comparación de embeddings
-usando la librería ``face_recognition`` para que pueda ser reutilizada por
-la API y el agente local.
+El flujo principal intenta usar ``face_recognition`` (dlib) para obtener
+embeddings precisos. Si esa dependencia no está instalada, cae en un modo
+"liviano" basado solo en OpenCV + Haar cascades, suficiente para pruebas
+rápidas sin compilar dlib (precisión limitada).
 """
 
 from __future__ import annotations
@@ -12,24 +13,62 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+import cv2
 
-try:  # Carga perezosa para no romper la app si falta la lib
+try:  # Carga perezosa para no romper la app si falta la lib pesada
     import face_recognition  # type: ignore
 except ImportError:  # pragma: no cover - rama defensiva
     face_recognition = None
 
+_haar_detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+
+def _opencv_embedding(gray_face: np.ndarray) -> Optional[List[float]]:
+    """Genera un embedding simple con OpenCV (Haar + vector normalizado)."""
+
+    resized = cv2.resize(gray_face, (32, 32))
+    vec = resized.astype(np.float32).flatten()
+    norm = np.linalg.norm(vec) or 1.0
+    vec /= norm
+    return vec.tolist()
+
 
 def require_face_recognition():
-    """Devuelve la librería o lanza un error descriptivo si no está instalada."""
+    """Devuelve la librería dlib o lanza un error descriptivo si no está instalada."""
 
     if face_recognition is None:
         raise RuntimeError(
-            "La dependencia opcional 'face_recognition' no está instalada. "
-            "Ejecuta 'pip install -r requirements-ml.txt' tras instalar CMake y un compilador. "
-            "En Windows instala Build Tools con C++ + CMake y abre una terminal nueva. "
-            "Consulta README (sección de problemas con dlib/CMake) para más detalles."
+            "No hay backend 'face_recognition' disponible. "
+            "Instala la dependencia pesada con 'pip install -r requirements-ml.txt' (CMake + compilador) "
+            "o usa el modo liviano automático basado en OpenCV incluido en requirements.txt."
         )
     return face_recognition
+
+
+def detect_and_encode(image: np.ndarray) -> List[Tuple[Tuple[int, int, int, int], List[float]]]:
+    """Devuelve bounding boxes (top, right, bottom, left) y embeddings."""
+
+    results: List[Tuple[Tuple[int, int, int, int], List[float]]] = []
+
+    if face_recognition is not None:
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        locations = face_recognition.face_locations(rgb)
+        encodings = face_recognition.face_encodings(rgb, locations)
+        for (top, right, bottom, left), enc in zip(locations, encodings):
+            results.append(((top, right, bottom, left), enc.tolist()))
+        return results
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = _haar_detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+    for (x, y, w, h) in faces:
+        crop = gray[y : y + h, x : x + w]
+        if crop.size == 0:
+            continue
+        emb = _opencv_embedding(crop)
+        if emb:
+            top, right, bottom, left = y, x + w, y + h, x
+            results.append(((top, right, bottom, left), emb))
+    return results
 
 
 def parse_embedding(vector: str) -> Optional[List[float]]:
@@ -57,22 +96,23 @@ def parse_embedding(vector: str) -> Optional[List[float]]:
 
 
 def encode_image_array(image: np.ndarray) -> Optional[List[float]]:
-    """Extrae el embedding de la primera cara encontrada en la imagen."""
+    """Extrae el embedding de la primera cara encontrada en la imagen.
 
-    fr = require_face_recognition()
-    rgb = image[:, :, ::-1]
-    locations = fr.face_locations(rgb)
-    if not locations:
-        return None
-    encodings = fr.face_encodings(rgb, known_face_locations=locations)
-    return encodings[0].tolist() if encodings else None
+    Intenta primero con ``face_recognition`` (si está disponible) y, si no,
+    recurre al modo liviano con OpenCV + Haar cascades.
+    """
+
+    detections = detect_and_encode(image)
+    return detections[0][1] if detections else None
 
 
 def encode_image_file(path: str) -> Optional[List[float]]:
     """Carga una imagen desde disco y devuelve el embedding de la primera cara."""
 
-    fr = require_face_recognition()
-    image = fr.load_image_file(path)
+    if face_recognition is not None:
+        image = cv2.cvtColor(face_recognition.load_image_file(path), cv2.COLOR_RGB2BGR)
+    else:
+        image = cv2.imread(path)
     return encode_image_array(image)
 
 

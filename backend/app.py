@@ -10,7 +10,7 @@ from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from .database import db
 from .models import Alert, Camera, Embedding, Person, Site
-from .recognition import best_match, build_bank, encode_image_array, parse_embedding, require_face_recognition
+from .recognition import best_match, build_bank, detect_and_encode, encode_image_array, parse_embedding
 
 
 def create_app(testing: bool = False) -> Flask:
@@ -89,15 +89,16 @@ def create_app(testing: bool = False) -> Flask:
             return {"error": "Debes enviar un archivo 'image'"}, 400
 
         image_file = request.files["image"]
-        image_bytes = image_file.read()
-        try:
-            fr = require_face_recognition()
-        except RuntimeError as exc:
-            return {"error": str(exc)}, 503
-        np_img = fr.load_image_file(io.BytesIO(image_bytes))
-        embedding = encode_image_array(np_img)
+        data = np.frombuffer(image_file.read(), dtype=np.uint8)
+        bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return {"error": "No se pudo leer la imagen"}, 400
+
+        embedding = encode_image_array(bgr)
         if embedding is None:
-            return {"error": "No se detectaron rostros en la imagen"}, 400
+            return {
+                "error": "No se detectaron rostros en la imagen o falta un backend de reconocimiento (usa face_recognition o el modo liviano con OpenCV)"
+            }, 400
 
         emb = Embedding(vector=json.dumps(embedding), model="face_recognition", person=person)
         db.session.add(emb)
@@ -110,13 +111,11 @@ def create_app(testing: bool = False) -> Flask:
             return {"error": "Debes enviar un archivo 'image'"}, 400
 
         image_file = request.files["image"]
-        try:
-            fr = require_face_recognition()
-        except RuntimeError as exc:
-            return {"error": str(exc)}, 503
-        frame = fr.load_image_file(io.BytesIO(image_file.read()))
-        locations = fr.face_locations(frame)
-        encodings = fr.face_encodings(frame, locations)
+        data = np.frombuffer(image_file.read(), dtype=np.uint8)
+        bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return {"error": "No se pudo leer la imagen"}, 400
+        detections = detect_and_encode(bgr)
 
         records = []
         persons = Person.query.all()
@@ -126,7 +125,7 @@ def create_app(testing: bool = False) -> Flask:
         bank = build_bank(records)
 
         results = []
-        for encoding in encodings:
+        for (top, right, bottom, left), encoding in detections:
             match, dist = best_match(encoding, bank)
             if match and dist is not None:
                 similarity = max(0.0, 1.0 - float(dist))
