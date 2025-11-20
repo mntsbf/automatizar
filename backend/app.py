@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import io
+import json
 import os
 from datetime import datetime
 from typing import List
 
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
+import face_recognition
 
 from .database import db
 from .models import Alert, Camera, Embedding, Person, Site
+from .recognition import best_match, build_bank, encode_image_array, parse_embedding
 
 
 def create_app(testing: bool = False) -> Flask:
@@ -73,10 +77,68 @@ def create_app(testing: bool = False) -> Flask:
         db.session.commit()
         embeddings: List[str] = payload.get("embeddings", [])
         for vector in embeddings:
-            emb = Embedding(vector=vector, model=payload.get("model", "ArcFace"), person=person)
-            db.session.add(emb)
+            parsed = parse_embedding(vector)
+            if parsed:
+                emb = Embedding(vector=json.dumps(parsed), model=payload.get("model", "ArcFace"), person=person)
+                db.session.add(emb)
         db.session.commit()
         return jsonify(person.to_dict()), 201
+
+    @app.post("/api/persons/<int:person_id>/embedding")
+    def add_person_embedding(person_id: int):
+        person = Person.query.get_or_404(person_id)
+        if "image" not in request.files:
+            return {"error": "Debes enviar un archivo 'image'"}, 400
+
+        image_file = request.files["image"]
+        image_bytes = image_file.read()
+        np_img = face_recognition.load_image_file(io.BytesIO(image_bytes))
+        embedding = encode_image_array(np_img)
+        if embedding is None:
+            return {"error": "No se detectaron rostros en la imagen"}, 400
+
+        emb = Embedding(vector=json.dumps(embedding), model="face_recognition", person=person)
+        db.session.add(emb)
+        db.session.commit()
+        return person.to_dict(), 201
+
+    @app.post("/api/recognize")
+    def recognize_from_image():
+        if "image" not in request.files:
+            return {"error": "Debes enviar un archivo 'image'"}, 400
+
+        image_file = request.files["image"]
+        frame = face_recognition.load_image_file(io.BytesIO(image_file.read()))
+        locations = face_recognition.face_locations(frame)
+        encodings = face_recognition.face_encodings(frame, locations)
+
+        records = []
+        persons = Person.query.all()
+        for person in persons:
+            for emb in person.embeddings:
+                records.append((person.id, person.full_name, emb.vector))
+        bank = build_bank(records)
+
+        results = []
+        for encoding in encodings:
+            match, dist = best_match(encoding, bank)
+            if match and dist is not None:
+                similarity = max(0.0, 1.0 - float(dist))
+                camera_id = request.form.get("camera_id")
+                camera_ref = int(camera_id) if camera_id else None
+                alert = Alert(
+                    similarity=similarity,
+                    person_id=match.person_id,
+                    camera_id=camera_ref,
+                    message=request.form.get("message", "Alerta desde imagen"),
+                )
+                db.session.add(alert)
+                db.session.commit()
+                results.append({"person": match.person_name, "similarity": similarity, "person_id": match.person_id})
+            else:
+                results.append({"person": None, "similarity": 0.0, "person_id": None})
+
+        return {"count": len(results), "matches": results}
 
     # --- Alerts ---
     @app.get("/api/alerts")

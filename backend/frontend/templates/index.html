@@ -115,6 +115,27 @@
           </div>
         </div>
       </section>
+
+      <section class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h5 class="card-title">Embeddings desde foto</h5>
+            <p class="text-muted small mb-2">Sube una foto para extraer automáticamente el embedding y asociarlo a una persona.</p>
+            <form id="upload-embedding-form" enctype="multipart/form-data">
+              <div class="mb-2">
+                <label class="form-label">Persona</label>
+                <select class="form-select" id="embedding-person" name="person_id" required></select>
+              </div>
+              <div class="mb-2">
+                <label class="form-label">Imagen (rostro visible)</label>
+                <input class="form-control" type="file" name="image" accept="image/*" required />
+              </div>
+              <button class="btn btn-success w-100" type="submit">Crear embedding desde foto</button>
+              <div class="form-text" id="upload-embedding-status"></div>
+            </form>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
 

@@ -4,6 +4,9 @@ const siteForm = document.getElementById('site-form');
 const cameraForm = document.getElementById('camera-form');
 const personForm = document.getElementById('person-form');
 const cameraSiteSelect = document.getElementById('camera-site');
+const embeddingPersonSelect = document.getElementById('embedding-person');
+const uploadEmbeddingForm = document.getElementById('upload-embedding-form');
+const uploadStatus = document.getElementById('upload-embedding-status');
 
 siteForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -32,6 +35,24 @@ personForm.addEventListener('submit', async (event) => {
   };
   await api.post('/persons', payload);
   personForm.reset();
+  await refreshPersons();
+});
+
+uploadEmbeddingForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  uploadStatus.textContent = '';
+  const formData = new FormData(uploadEmbeddingForm);
+  const personId = formData.get('person_id');
+  try {
+    await api.post(`/persons/${personId}/embedding`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    uploadStatus.textContent = 'Embedding creado y guardado con éxito';
+    uploadStatus.classList.remove('text-danger');
+    uploadStatus.classList.add('text-success');
+    uploadEmbeddingForm.reset();
+  } catch (err) {
+    uploadStatus.textContent = err.response?.data?.error || 'No se pudo generar el embedding';
+    uploadStatus.classList.add('text-danger');
+  }
 });
 
 async function refreshSites() {
@@ -64,6 +85,17 @@ async function refreshCameras() {
   });
 }
 
+async function refreshPersons() {
+  const { data } = await api.get('/persons');
+  embeddingPersonSelect.innerHTML = '';
+  data.forEach((person) => {
+    const option = document.createElement('option');
+    option.value = person.id;
+    option.textContent = person.full_name;
+    embeddingPersonSelect.appendChild(option);
+  });
+}
+
 async function refreshAlerts() {
   const { data } = await api.get('/alerts');
   const list = document.getElementById('alerts');
@@ -83,7 +115,7 @@ async function refreshAlerts() {
 
 document.getElementById('refresh-alerts').addEventListener('click', refreshAlerts);
 document.getElementById('refresh-inventory').addEventListener('click', async () => {
-  await Promise.all([refreshSites(), refreshCameras()]);
+  await Promise.all([refreshSites(), refreshCameras(), refreshPersons()]);
 });
 
-refreshSites().then(refreshCameras).then(refreshAlerts);
+refreshSites().then(refreshCameras).then(refreshPersons).then(refreshAlerts);
