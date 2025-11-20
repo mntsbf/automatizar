@@ -128,6 +128,9 @@ def create_app(testing: bool = False) -> Flask:
         bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
         if bgr is None:
             return {"error": "No se pudo leer la imagen"}, 400
+        tolerance = float(request.form.get("tolerance", 0.7))
+        margin = float(request.form.get("margin", 0.1))
+
         detections = detect_and_encode(bgr)
 
         records = []
@@ -139,7 +142,7 @@ def create_app(testing: bool = False) -> Flask:
 
         results = []
         for (top, right, bottom, left), encoding in detections:
-            match, similarity = best_match(encoding, bank)
+            match, similarity = best_match(encoding, bank, tolerance=tolerance, margin=margin)
             if match and similarity is not None:
                 camera_id = request.form.get("camera_id")
                 camera_ref = int(camera_id) if camera_id else None

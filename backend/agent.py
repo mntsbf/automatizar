@@ -52,7 +52,9 @@ def ensure_local_camera() -> int:
     return camera.id
 
 
-def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float = 0.55):
+def run_camera(
+    camera_source: str | int, camera_id: int | None, tolerance: float = 0.7, margin: float = 0.1
+):
     app = create_app()
     with app.app_context():
         bank = load_bank_from_db()
@@ -73,7 +75,9 @@ def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float
             detections = detect_and_encode(frame)
 
             for (top, right, bottom, left), encoding in detections:
-                match, similarity = best_match(encoding, bank, tolerance=tolerance)
+                match, similarity = best_match(
+                    encoding, bank, tolerance=tolerance, margin=margin
+                )
                 label = "Desconocido"
                 color = (0, 0, 255)
 
@@ -122,8 +126,14 @@ def parse_args():
     parser.add_argument(
         "--tolerance",
         type=float,
-        default=0.55,
+        default=0.7,
         help="Similitud mínima (0-1) para aceptar un match",
+    )
+    parser.add_argument(
+        "--margin",
+        type=float,
+        default=0.1,
+        help="Diferencia mínima frente al segundo mejor candidato para evitar falsos positivos",
     )
     return parser.parse_args()
 
@@ -131,4 +141,9 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     source = int(args.camera) if str(args.camera).isdigit() else args.camera
-    run_camera(camera_source=source, camera_id=args.camera_id, tolerance=args.tolerance)
+    run_camera(
+        camera_source=source,
+        camera_id=args.camera_id,
+        tolerance=args.tolerance,
+        margin=args.margin,
+    )

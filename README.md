@@ -59,15 +59,15 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 2. Ejecuta el agente local para abrir la webcam o un RTSP y generar alertas sobre tu base:
 
    ```bash
-   python -m backend.agent --camera 0 --camera-id 1 --tolerance 0.55
+   python -m backend.agent --camera 0 --camera-id 1 --tolerance 0.7 --margin 0.1
    ```
 
    Pulsa **q** para cerrar la ventana o **r** para recargar el banco de embeddings sin reiniciar.
-3. Ajusta `--tolerance` (similitud mínima de coseno ya normalizada): valores altos → más precisión y menos falsos positivos; valores bajos → más recall.
+3. Ajusta `--tolerance` (similitud mínima de coseno ya normalizada): valores altos → más precisión y menos falsos positivos; valores bajos → más recall. Usa también `--margin` (diferencia mínima sobre el segundo mejor candidato) para filtrar casos ambiguos.
 
 ### Cómo mejorar la precisión
 - **Usa el modo completo (`face_recognition`/dlib)**: instala `pip install -r requirements-ml.txt` tras preparar CMake + compilador para embeddings más sólidos.
-- **Ajusta tolerancia**: en modo completo suelen funcionar 0.65-0.75; en modo liviano 0.55-0.6.
+- **Ajusta tolerancia**: en modo completo suelen funcionar 0.7-0.8; en modo liviano prueba 0.6-0.7. Sube `--margin` (p.ej. 0.12-0.15) si sigues viendo falsos positivos cuando hay personas parecidas.
 - **Normaliza datos**: sube fotos frontales, bien iluminadas y nítidas; evita recortes con gafas oscuras o baja resolución.
 - **Recarga el banco**: botón "Actualizar" en el panel o `r` en la ventana del agente para usar nuevos embeddings al instante.
 - **Calidad de cámara**: mayor resolución (720p+) y buena iluminación reducen ruido en detección y comparación.

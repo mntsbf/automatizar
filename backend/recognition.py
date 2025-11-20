@@ -148,12 +148,16 @@ def build_bank(records: Iterable[Tuple[int, str, str]]) -> List[KnownEmbedding]:
 def best_match(
     encoding: Sequence[float],
     bank: Sequence[KnownEmbedding],
-    tolerance: float = 0.55,
+    tolerance: float = 0.7,
+    margin: float = 0.1,
 ):
     """Encuentra el match más cercano usando similitud de coseno normalizada.
 
-    Devuelve (match, similitud). Si no cumple el ``tolerance`` devuelve (None, None).
-    ``tolerance`` representa el mínimo de similitud (0-1) para aceptar un match.
+    Requiere simultáneamente que la similitud supere ``tolerance`` **y** que sea
+    al menos ``margin`` mayor que la segunda mejor coincidencia, reduciendo falsos
+    positivos cuando varios rostros son parecidos.
+
+    Devuelve (match, similitud). Si no cumple las condiciones devuelve (None, None).
     """
 
     if not bank:
@@ -165,6 +169,10 @@ def best_match(
 
     max_idx = int(np.argmax(similarities))
     max_sim = float(similarities[max_idx])
-    if max_sim >= tolerance:
-        return bank[max_idx], max_sim
-    return None, None
+
+    # Chequea ambigüedad: la mejor coincidencia debe destacar sobre la segunda
+    second_best = float(np.partition(similarities, -2)[-2]) if len(similarities) > 1 else -1.0
+    if max_sim < tolerance or (max_sim - second_best) < margin:
+        return None, None
+
+    return bank[max_idx], max_sim
