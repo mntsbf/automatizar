@@ -18,7 +18,9 @@ from .recognition import best_match, build_bank, detect_and_encode, encode_image
 
 def create_app(testing: bool = False) -> Flask:
     app = Flask(__name__, template_folder="frontend/templates", static_folder="frontend/static")
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///facehub.db")
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    default_db = f"sqlite:///{os.path.join(base_dir, 'facehub.db')}"
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", default_db)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["JSON_SORT_KEYS"] = False
 
