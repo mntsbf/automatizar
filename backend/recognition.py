@@ -25,8 +25,9 @@ def require_face_recognition():
     if face_recognition is None:
         raise RuntimeError(
             "La dependencia opcional 'face_recognition' no está instalada. "
-            "Ejecuta 'pip install -r requirements.txt'. En Windows/macOS puede requerir "
-            "compilación de dlib; consulta README para prerequisitos."
+            "Ejecuta 'pip install -r requirements-ml.txt' tras instalar CMake y un compilador. "
+            "En Windows instala Build Tools con C++ + CMake y abre una terminal nueva. "
+            "Consulta README (sección de problemas con dlib/CMake) para más detalles."
         )
     return face_recognition
 

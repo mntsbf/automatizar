@@ -9,8 +9,13 @@ Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de
 - Python 3.10+
 - `pip`
 - Para habilitar reconocimiento facial (`face_recognition`/`dlib`), instala herramientas de compilación y CMake:
-  - Windows: [Build Tools para Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) + [CMake](https://cmake.org/download/). Tras instalarlos abre una terminal nueva y ejecuta `pip install --upgrade pip setuptools wheel`.
-  - Linux/macOS: ten disponibles compiladores (`build-essential`/`xcode-select --install`) y `cmake` (`sudo apt install cmake` en Debian/Ubuntu).
+  - Windows (guía rápida):
+    1. Instala [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) eligiendo **Desktop development with C++** (incluye MSVC y el SDK de Windows).
+    2. Instala [CMake](https://cmake.org/download/) marcando la opción de agregarlo al **PATH**.
+    3. Abre **una terminal nueva** y comprueba `cmake --version` y `cl`.
+    4. Actualiza las utilidades de compilación y CMake en tu venv: `pip install --upgrade pip setuptools wheel cmake`.
+    5. Instala las dependencias opcionales: `pip install -r requirements-ml.txt`.
+  - Linux/macOS: ten disponibles compiladores (`build-essential`/`xcode-select --install`) y `cmake` (`sudo apt install cmake` en Debian/Ubuntu), luego `pip install -r requirements-ml.txt`.
 
 ## Instalación y ejecución
 ### 1) Descarga del proyecto
@@ -38,6 +43,12 @@ Para habilitar reconocimiento facial e ingesta de fotos, instala la dependencia 
 ```bash
 pip install -r requirements-ml.txt
 ```
+
+Si al instalar ves el error "CMake is not installed on your system" o fallos al compilar **dlib**:
+
+- Verifica que `cmake --version` y `cl` (Windows) funcionan desde la misma terminal donde ejecutas `pip`.
+- Reinstala CMake desde el enlace oficial y abre una terminal nueva para que el PATH se actualice.
+- Asegúrate de haber instalado los **Build Tools con C++** (Windows) o `build-essential` (Linux).
 
 ### 3) Probar reconocimiento en local
 1. Registra personas desde el panel y sube una foto en la sección **Embeddings desde foto** para generar el embedding automáticamente.
