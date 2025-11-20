@@ -1,0 +1,16 @@
+body {
+  background: #f5f7fa;
+}
+
+.card-title {
+  font-weight: 700;
+}
+
+.list-group-item {
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.list-group-item:last-child {
+  border-bottom: none;
+}
