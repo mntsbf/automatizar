@@ -8,7 +8,9 @@ Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de
 ## Requisitos
 - Python 3.10+
 - `pip`
-- Dependencias del sistema para `face_recognition`/`dlib`: en Windows instala [Build Tools para Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) y ejecuta `pip install --upgrade pip setuptools wheel` antes de `pip install -r requirements.txt`. En Linux/macOS asegúrate de tener compiladores (``build-essential``) y ``cmake`` disponibles.
+- Para habilitar reconocimiento facial (`face_recognition`/`dlib`), instala herramientas de compilación y CMake:
+  - Windows: [Build Tools para Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) + [CMake](https://cmake.org/download/). Tras instalarlos abre una terminal nueva y ejecuta `pip install --upgrade pip setuptools wheel`.
+  - Linux/macOS: ten disponibles compiladores (`build-essential`/`xcode-select --install`) y `cmake` (`sudo apt install cmake` en Debian/Ubuntu).
 
 ## Instalación y ejecución
 ### 1) Descarga del proyecto
@@ -21,6 +23,7 @@ cd automatizar
 Si prefieres descargar un ZIP, desde la interfaz web del repositorio pulsa **Code > Download ZIP**, descomprime el archivo y entra en la carpeta `automatizar`.
 
 ### 2) Preparar entorno y dependencias
+Instala dependencias base (sin reconocimiento facial) para que el servidor y el panel funcionen:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -29,7 +32,12 @@ python -m backend.app
 ```
 La aplicación queda disponible en `http://localhost:5000`.
 
-> Nota: si omites `pip install -r requirements.txt`, las rutas que usan reconocimiento facial y el agente local mostrarán un mensaje de dependencia faltante pero el servidor aún podrá iniciar.
+> Nota: si no instalas el paquete opcional `face_recognition`, las rutas que procesan imágenes y el agente local mostrarán un mensaje de dependencia faltante, pero el servidor puede iniciar y el resto de la API funciona.
+
+Para habilitar reconocimiento facial e ingesta de fotos, instala la dependencia opcional (tras cumplir los requisitos del sistema):
+```bash
+pip install -r requirements-ml.txt
+```
 
 ### 3) Probar reconocimiento en local
 1. Registra personas desde el panel y sube una foto en la sección **Embeddings desde foto** para generar el embedding automáticamente.
