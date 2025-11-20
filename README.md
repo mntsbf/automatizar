@@ -10,6 +10,16 @@ Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de
 - `pip`
 
 ## Instalación y ejecución
+### 1) Descarga del proyecto
+Si usas Git, clona el repositorio:
+```bash
+git clone <url-de-tu-repo>/automatizar.git
+cd automatizar
+```
+
+Si prefieres descargar un ZIP, desde la interfaz web del repositorio pulsa **Code > Download ZIP**, descomprime el archivo y entra en la carpeta `automatizar`.
+
+### 2) Preparar entorno y dependencias
 ```bash
 python -m venv .venv
 source .venv/bin/activate
