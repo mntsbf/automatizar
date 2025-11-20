@@ -15,7 +15,7 @@ import cv2
 
 from .app import create_app
 from .database import db
-from .models import Alert, Person
+from .models import Alert, Camera, Person, Site
 from .recognition import best_match, build_bank, detect_and_encode
 
 
@@ -28,11 +28,37 @@ def load_bank_from_db() -> List:
     return build_bank(records)
 
 
+def ensure_local_camera() -> int:
+    """Garantiza una cámara y sitio por defecto para registrar alertas.
+
+    Esto evita errores de restricción NOT NULL cuando el agente se ejecuta sin
+    especificar un ``camera_id`` explícito.
+    """
+
+    site = Site.query.filter_by(name="Agente Local").first()
+    if not site:
+        site = Site(name="Agente Local", location="Local")
+        db.session.add(site)
+        db.session.commit()
+
+    camera = (
+        Camera.query.filter_by(name="Cámara Local", site_id=site.id).first()
+    )
+    if not camera:
+        camera = Camera(name="Cámara Local", rtsp_url="local", site_id=site.id)
+        db.session.add(camera)
+        db.session.commit()
+
+    return camera.id
+
+
 def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float = 0.45):
     app = create_app()
     with app.app_context():
         bank = load_bank_from_db()
         print(f"Embeddings cargados: {len(bank)}")
+
+        resolved_camera_id = camera_id or ensure_local_camera()
 
         cap = cv2.VideoCapture(camera_source)
         if not cap.isOpened():
@@ -60,7 +86,7 @@ def run_camera(camera_source: str | int, camera_id: int | None, tolerance: float
                     alert = Alert(
                         similarity=similarity,
                         person_id=match.person_id,
-                        camera_id=camera_id,
+                        camera_id=resolved_camera_id,
                         message="Match detectado por agente local",
                         created_at=datetime.utcnow(),
                     )
