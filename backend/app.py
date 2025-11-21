@@ -104,8 +104,19 @@ def _faces_dir(app: Flask) -> str:
     return faces_path
 
 
-def _save_face_photo(person: Person, storage, app: Flask, save_embedding_row: bool = False):
-    """Procesa un FileStorage, genera embedding y persiste el archivo + DB."""
+def _save_face_photo(
+    person: Person,
+    storage,
+    app: Flask,
+    save_embedding_row: bool = False,
+    live_check: bool = False,
+):
+    """Procesa un FileStorage, genera embedding y persiste el archivo + DB.
+
+    ``live_check`` se deja desactivado por defecto para no bloquear la carga de
+    galerías históricas: algunos clasificadores de anti-spoofing pueden
+    penalizar fotos fijas aunque sean legítimas.
+    """
 
     filename = secure_filename(storage.filename or f"rostro_{uuid.uuid4().hex}.jpg")
     name, ext = os.path.splitext(filename)
@@ -118,7 +129,11 @@ def _save_face_photo(person: Person, storage, app: Flask, save_embedding_row: bo
         return None, None, "No se pudo leer la imagen"
 
     spoof_threshold = float(_get_setting_value("spoof_threshold", "0.5"))
-    detections = robust_detect_and_encode(bgr, live_check=True, spoof_threshold=spoof_threshold)
+    detections = robust_detect_and_encode(
+        bgr,
+        live_check=live_check,
+        spoof_threshold=spoof_threshold,
+    )
     if not detections:
         return None, None, "No se detectaron rostros válidos (anti-spoofing)"
 
@@ -272,7 +287,14 @@ def create_app(testing: bool = False) -> Flask:
             return {"error": "Debes enviar un archivo 'image'"}, 400
 
         image_file = request.files["image"]
-        photo, emb_row, error = _save_face_photo(person, image_file, app, save_embedding_row=True)
+        live_check = request.form.get("live_check", "false").lower() == "true"
+        photo, emb_row, error = _save_face_photo(
+            person,
+            image_file,
+            app,
+            save_embedding_row=True,
+            live_check=live_check,
+        )
         if error:
             return {"error": error}, 400
 
@@ -287,10 +309,18 @@ def create_app(testing: bool = False) -> Flask:
         if not files:
             return {"error": "Incluye archivos en 'images' o 'photos'"}, 400
 
+        live_check = request.form.get("live_check", "false").lower() == "true"
+
         created: list[dict] = []
         errors: list[dict] = []
         for storage in files:
-            photo, _, error = _save_face_photo(person, storage, app, save_embedding_row=False)
+            photo, _, error = _save_face_photo(
+                person,
+                storage,
+                app,
+                save_embedding_row=False,
+                live_check=live_check,
+            )
             if error:
                 errors.append({"filename": storage.filename, "error": error})
                 continue

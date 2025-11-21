@@ -75,7 +75,7 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 
 ### Embeddings múltiples por persona
 - **Modelo de datos**: una persona puede tener múltiples fotos (`face_photos`) con su embedding y metadata (calidad, bounding box). Se almacena en `static/faces/` con nombre único.
-- **Carga masiva**: usa el formulario "Subir varias fotos por persona" o el endpoint `POST /api/persons/<id>/photos` (campo `images`). Cada imagen valida que haya rostro, genera embedding y guarda calidad para filtrar ruido.
+- **Carga masiva**: usa el formulario "Subir varias fotos por persona" o el endpoint `POST /api/persons/<id>/photos` (campo `images`). Cada imagen valida que haya rostro, genera embedding y guarda calidad para filtrar ruido. El anti-spoofing está desactivado por defecto en esta ruta para no bloquear galerías históricas; envía `live_check=true` si quieres forzarlo.
 - **Decisión de match**: se calcula la distancia coseno del rostro entrante contra **todas** las fotos de cada persona y se toma el mínimo. Se acepta si `distancia <= threshold` y mejora al segundo candidato al menos por `margin`.
 - **Refresco del banco**: tras agregar fotos puedes llamar `POST /api/embeddings/refresh` o pulsar **Actualizar**/`r` para recalcular el banco en memoria.
 - **ArcFace + normalización**: si instalas `insightface`, el pipeline usa ArcFace (buffalo_l) con alineamiento de ojos, resize a 112x112 y CLAHE para mejorar contraste; métricas con distancia coseno + margen reducen falsos positivos.
