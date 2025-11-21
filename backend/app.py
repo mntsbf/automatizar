@@ -150,6 +150,18 @@ def _get_bank(force: bool = False):
     return _EMBEDDING_BANK_CACHE["bank"]
 
 
+def _safe_bbox(raw_bbox):
+    if not raw_bbox:
+        return None
+    try:
+        return [int(x) for x in raw_bbox]
+    except Exception:
+        try:
+            return list(raw_bbox)
+        except Exception:
+            return None
+
+
 def _faces_dir(app: Flask) -> str:
     faces_path = os.path.join(app.static_folder, "faces")
     os.makedirs(faces_path, exist_ok=True)
@@ -550,7 +562,7 @@ def create_app(testing: bool = False) -> Flask:
                         "entry": entry,
                         "similarity": sim_or_fallback,
                         "diagnostics": diagnostics,
-                        "bbox": det.get("bbox"),
+                        "bbox": _safe_bbox(det.get("bbox")),
                         "live": det.get("live", True),
                         "bank_info": info,
                     }
