@@ -95,6 +95,11 @@ body {
   border: 1px solid #e5e7eb;
 }
 
+#scan-guide {
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
 small.text-muted {
   letter-spacing: 0.01em;
 }

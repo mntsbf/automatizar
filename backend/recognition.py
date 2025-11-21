@@ -204,14 +204,14 @@ def _action_satisfied(
     pose: dict,
     smile_score: float,
     *,
-    yaw_thr=12.0,
-    pitch_thr=8.0,
-    smile_thr=1.7,
+    yaw_thr=10.0,
+    pitch_thr=6.5,
+    smile_thr=1.4,
     pose_confidence: float = 1.0,
     quality: float | None = None,
-    quality_min: float = 0.5,
+    quality_min: float = 0.4,
     allow_lenient: bool = False,
-    near_ratio: float = 0.6,
+    near_ratio: float = 0.5,
 ) -> tuple[bool, str]:
     """Evalúa si el movimiento solicitado se cumplió.
 
@@ -232,7 +232,7 @@ def _action_satisfied(
         # suficiente, permitimos progresar salvo en la sonrisa.
         if action in ("frente", "center"):
             return True, "frente"
-        if allow_lenient and quality is not None and quality >= max(quality_min, 0.5):
+        if allow_lenient and quality is not None and quality >= max(quality_min, 0.4):
             if action in ("sonreir", "sonreír", "smile"):
                 return False, "sin_landmarks"
             return True, "lenient_bbox"
@@ -633,10 +633,10 @@ def analyze_scan_frame(
     *,
     live_check: bool = True,
     spoof_threshold: float = DEFAULT_SPOOF_THRESHOLD,
-    quality_threshold: float = DEFAULT_QUALITY_THRESHOLD,
-    yaw_threshold: float = 8.0,
-    pitch_threshold: float = 5.0,
-    smile_threshold: float = 1.2,
+    quality_threshold: float = 0.5,
+    yaw_threshold: float = 6.0,
+    pitch_threshold: float = 4.0,
+    smile_threshold: float = 1.0,
 ) -> dict:
     """Evalúa un frame para un paso guiado (giro, sonrisa, etc.)."""
 

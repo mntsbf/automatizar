@@ -556,7 +556,7 @@ def create_app(testing: bool = False) -> Flask:
         action = request.form.get("action", "frente")
         live_check = request.form.get("live_check", "true").lower() == "true"
         spoof_threshold = float(request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5")))
-        quality_threshold = float(request.form.get("quality_threshold", "0.55"))
+        quality_threshold = float(request.form.get("quality_threshold", "0.45"))
 
         data = np.frombuffer(image_file.read(), dtype=np.uint8)
         bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)

@@ -32,6 +32,7 @@ const liveCheck = document.getElementById('scan-live');
 const refreshCheck = document.getElementById('scan-refresh');
 const autoCheck = document.getElementById('scan-auto');
 const deviceSelect = document.getElementById('scan-device');
+const guideCanvas = document.getElementById('scan-guide');
 
 const overlayText = document.querySelector('#scan-overlay span');
 
@@ -45,6 +46,49 @@ const cameraHints = {
 function setStatus(text, color = 'secondary') {
   statusBadge.textContent = text;
   statusBadge.className = `badge bg-${color}`;
+}
+
+function ensureGuideSize() {
+  if (!guideCanvas || !video) return;
+  const w = video.videoWidth || guideCanvas.clientWidth || 640;
+  const h = video.videoHeight || guideCanvas.clientHeight || 360;
+  if (w && h && (guideCanvas.width !== w || guideCanvas.height !== h)) {
+    guideCanvas.width = w;
+    guideCanvas.height = h;
+  }
+}
+
+function drawGuide(bbox = null) {
+  if (!guideCanvas) return;
+  ensureGuideSize();
+  const ctx = guideCanvas.getContext('2d');
+  const w = guideCanvas.width;
+  const h = guideCanvas.height;
+  if (!w || !h) return;
+
+  ctx.clearRect(0, 0, w, h);
+  const size = Math.min(w, h) * 0.6;
+  const x = (w - size) / 2;
+  const y = (h - size) / 2;
+
+  ctx.strokeStyle = 'rgba(13, 110, 253, 0.7)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([12, 10]);
+  ctx.strokeRect(x, y, size, size);
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = 'rgba(13, 110, 253, 0.25)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x - 12, y - 12, size + 24, size + 24);
+
+  if (bbox) {
+    const [top, right, bottom, left] = bbox;
+    ctx.strokeStyle = 'rgba(25, 135, 84, 0.95)';
+    ctx.fillStyle = 'rgba(25, 135, 84, 0.18)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(left, top, right - left, bottom - top);
+    ctx.fillRect(left, top, right - left, bottom - top);
+  }
 }
 
 function renderSteps() {
@@ -150,6 +194,7 @@ async function startCamera() {
     overlay.hidden = true;
     captureBtn.disabled = false;
     setStatus('En vivo', 'success');
+    drawGuide();
     if (autoCheck?.checked) startLiveLoop();
   } catch (err) {
     console.error('camera error', err);
@@ -173,6 +218,7 @@ function stopCamera() {
   captureBtn.disabled = true;
   setStatus('Cámara detenida', 'secondary');
   stopLiveLoop();
+  drawGuide();
 }
 
 function stopLiveLoop() {
@@ -217,7 +263,7 @@ function describeReason(reason) {
     case 'spoof':
       return 'Liveness falló, intenta de nuevo';
     default:
-      return 'Movimiento insuficiente para el paso';
+      return 'Movimiento insuficiente, alinea el rostro dentro del marco azul';
   }
 }
 
@@ -256,6 +302,7 @@ async function handleFrame(step) {
       addPreview(shot.dataUrl, step, payload.quality || 0);
       currentStep += 1;
       setStatus(payload.message || 'Paso validado', 'success');
+      drawGuide(payload.bbox || null);
       renderSteps();
       if (currentStep >= steps.length) {
         await finalizeScan();
@@ -264,6 +311,7 @@ async function handleFrame(step) {
       const reason = payload.reason || (ok ? 'sin_match' : 'error');
       const color = reason === 'no_face' ? 'warning' : 'danger';
       setStatus(payload.message || describeReason(reason), color);
+      drawGuide(payload.bbox || null);
     }
   } catch (err) {
     console.error('scan frame failed', err);
@@ -333,6 +381,7 @@ function resetFlow() {
   renderSteps();
   renderResult(null);
   setStatus('Listo', 'secondary');
+  drawGuide();
 }
 
 if (startBtn) startBtn.addEventListener('click', startCamera);
@@ -344,6 +393,12 @@ if (autoCheck)
     else stopLiveLoop();
   });
 
+if (video) {
+  video.addEventListener('loadedmetadata', () => drawGuide());
+  window.addEventListener('resize', () => drawGuide());
+}
+
 renderSteps();
 loadPersons();
 loadDevices();
+drawGuide();
