@@ -199,12 +199,39 @@ def _pose_from_landmarks(landmarks: Optional[dict], bbox=None) -> dict:
     return pose
 
 
-def _action_satisfied(action: str, pose: dict, smile_score: float, yaw_thr=12.0, pitch_thr=8.0, smile_thr=1.7) -> tuple[bool, str]:
-    """Evalúa si el movimiento solicitado se cumplió."""
+def _action_satisfied(
+    action: str,
+    pose: dict,
+    smile_score: float,
+    *,
+    yaw_thr=12.0,
+    pitch_thr=8.0,
+    smile_thr=1.7,
+    pose_confidence: float = 1.0,
+    quality: float | None = None,
+    quality_min: float = 0.55,
+    allow_lenient: bool = False,
+) -> tuple[bool, str]:
+    """Evalúa si el movimiento solicitado se cumplió.
+
+    Cuando no se dispone de landmarks (pose_confidence bajo), se permite un
+    modo tolerante opcional para no bloquear el flujo en hardware simple.
+    """
 
     yaw = pose.get("yaw", 0.0)
     pitch = pose.get("pitch", 0.0)
     roll = pose.get("roll", 0.0)
+
+    if pose_confidence < 0.25:
+        # Con pocos landmarks no es fiable distinguir giros. Si la calidad es
+        # suficiente, permitimos progresar salvo en la sonrisa.
+        if action in ("frente", "center"):
+            return True, "frente"
+        if allow_lenient and quality is not None and quality >= max(quality_min, 0.55):
+            if action in ("sonreir", "sonreír", "smile"):
+                return False, "sin_landmarks"
+            return True, "lenient"
+        return False, "sin_landmarks"
 
     if action in ("frente", "center"):
         return (abs(yaw) < yaw_thr and abs(pitch) < pitch_thr), "frente"
@@ -574,9 +601,9 @@ def analyze_scan_frame(
     live_check: bool = True,
     spoof_threshold: float = DEFAULT_SPOOF_THRESHOLD,
     quality_threshold: float = DEFAULT_QUALITY_THRESHOLD,
-    yaw_threshold: float = 12.0,
-    pitch_threshold: float = 8.0,
-    smile_threshold: float = 1.7,
+    yaw_threshold: float = 10.0,
+    pitch_threshold: float = 6.0,
+    smile_threshold: float = 1.5,
 ) -> dict:
     """Evalúa un frame para un paso guiado (giro, sonrisa, etc.)."""
 
@@ -599,14 +626,34 @@ def analyze_scan_frame(
     ordered = sorted(detections, key=lambda d: d.get("quality", 0.0), reverse=True)
     best = ordered[0]
     pose = best.get("pose") or _pose_from_landmarks(best.get("landmarks"), best.get("bbox"))
+    # Confianza aproximada: landmarks presentes => 1.0; sin landmarks, dependerá del tamaño de bbox.
+    bbox = best.get("bbox")
+    pose_confidence = 1.0 if best.get("landmarks") else 0.0
+    if bbox and pose_confidence == 0.0:
+        top, right, bottom, left = bbox
+        h, w = image.shape[:2]
+        area_ratio = max(0.0, float((bottom - top) * (right - left)) / max(1.0, float(h * w)))
+        pose_confidence = float(min(0.6, max(0.12, area_ratio * 3.5)))
+    pose["confidence"] = pose_confidence
     smile_score = float(best.get("smile_score", 0.0))
-    ok, reason = _action_satisfied(action, pose, smile_score, yaw_thr=yaw_threshold, pitch_thr=pitch_threshold, smile_thr=smile_threshold)
+    ok, reason = _action_satisfied(
+        action,
+        pose,
+        smile_score,
+        yaw_thr=yaw_threshold,
+        pitch_thr=pitch_threshold,
+        smile_thr=smile_threshold,
+        pose_confidence=pose_confidence,
+        quality=best.get("quality"),
+        allow_lenient=True,
+    )
 
     payload = {
         "ok": ok,
         "reason": reason,
         "pose": pose,
         "smile_score": smile_score,
+        "pose_confidence": pose_confidence,
         "quality": best.get("quality"),
         "live": best.get("live", True),
         "bbox": best.get("bbox"),

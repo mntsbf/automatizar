@@ -209,8 +209,12 @@ function describeReason(reason) {
   switch (reason) {
     case 'no_face':
       return 'No se detectaron rostros válidos';
+    case 'sin_landmarks':
+      return 'No se pudo estimar el giro (acércate o mejora la luz)';
     case 'accion_no_reconocida':
       return 'Acción no reconocida';
+    case 'lenient':
+      return 'Movimiento aceptado en modo tolerante';
     case 'spoof':
       return 'Liveness falló, intenta de nuevo';
     default:
