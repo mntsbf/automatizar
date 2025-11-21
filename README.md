@@ -2,7 +2,7 @@
 
 Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de vigilancia distribuida con:
 - API REST para sitios, cámaras, personas, embeddings y alertas.
-- Panel web minimalista para ingresar datos, cargar rostros y visualizar alertas recientes.
+- Dashboard moderno (sidebar, topbar y tarjetas) para visualizar alertas, métricas y gráficas en tiempo real.
 - Base de datos SQLite autocontenida.
   - La base se crea por defecto en `backend/facehub.db`. Si ya tenías un `facehub.db` en la raíz del proyecto, el servidor lo detectará y lo reutilizará automáticamente para no perder embeddings previos.
 
@@ -80,5 +80,14 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 - `POST /api/persons/<id>/embedding` — subir foto y crear embedding con `face_recognition`.
 - `POST /api/recognize` — enviar imagen y devolver coincidencias (genera alerta si coincide).
 - `GET/POST /api/alerts` — recibir y consultar alertas.
+- `GET /api/dashboard/estadisticas` — métricas para tarjetas y gráfico (alertas hoy, críticas, cámaras activas, serie de tiempo y top sedes).
+- `GET /api/dashboard/ultimas-alertas` — tabla con últimos eventos (sede, cámara, persona y nivel de riesgo).
+- `GET /api/dashboard/tiempo-real` — SSE sencillo para refrescar el dashboard cuando llegan nuevas alertas.
 
 Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
+
+## Estructura de templates y estáticos
+- `backend/frontend/templates/base.html`: layout con sidebar, topbar y bloques Jinja2.
+- `backend/frontend/templates/dashboard.html`: tablero principal con tarjetas, gráfico de Chart.js y tabla de alertas.
+- `backend/frontend/static/dashboard.js`: lógica de Fetch + SSE para actualizar tarjetas, gráfica y tabla.
+- `backend/frontend/static/styles.css`: estilos de dashboard (tiles, sidebar, badges de riesgo).

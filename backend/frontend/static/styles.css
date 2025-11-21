@@ -1,9 +1,81 @@
 body {
-  background: #f5f7fa;
+  background: #f3f4f6;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1f2933;
 }
 
-.card-title {
+#layout-wrapper {
+  min-height: 100vh;
+}
+
+#sidebar {
+  width: 250px;
+  min-height: 100vh;
+  position: sticky;
+  top: 0;
+}
+
+#sidebar .nav-link {
+  padding: 12px 18px;
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+
+#sidebar .nav-link:hover,
+#sidebar .nav-link.active {
+  background: rgba(255, 255, 255, 0.08);
+  border-left-color: #0d6efd;
+  color: #fff;
+}
+
+#content {
+  background: #f8fafc;
+}
+
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #0d6efd;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
   font-weight: 700;
+}
+
+.tile {
+  border: none;
+  border-radius: 14px;
+}
+
+.tile .tile-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 1.25rem;
+}
+
+.table thead th {
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
+.badge-risk-critical {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge-risk-warning {
+  background: #fff7e6;
+  color: #b35300;
+}
+
+.badge-risk-info {
+  background: #e7f1ff;
+  color: #0d6efd;
 }
 
 .list-group-item {
@@ -13,4 +85,16 @@ body {
 
 .list-group-item:last-child {
   border-bottom: none;
+}
+
+.thumbnail-face {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #e5e7eb;
+}
+
+small.text-muted {
+  letter-spacing: 0.01em;
 }

@@ -3,17 +3,30 @@ from __future__ import annotations
 import io
 import json
 import os
-from datetime import datetime
-from typing import List
+import time
+from datetime import datetime, timedelta
+from typing import Iterable
 
 import cv2
 import numpy as np
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from flask_cors import CORS
+from sqlalchemy import func
 from .database import db
 from .models import Alert, Camera, Embedding, Person, Site
 from .recognition import best_match, build_bank, detect_and_encode, encode_image_array, parse_embedding
+
+
+def _risk_level(role: str | None) -> str:
+    if not role:
+        return "info"
+    lower = role.lower()
+    if "negra" in lower or "roja" in lower or "black" in lower:
+        return "critical"
+    if "gris" in lower or "watch" in lower or "observ" in lower:
+        return "warning"
+    return "info"
 
 
 def create_app(testing: bool = False) -> Flask:
@@ -40,7 +53,7 @@ def create_app(testing: bool = False) -> Flask:
 
     @app.route("/")
     def index():
-        return render_template("index.html")
+        return render_template("dashboard.html", user_name="Administrador", user_role="Admin")
 
     # --- Sites ---
     @app.get("/api/sites")
@@ -159,6 +172,114 @@ def create_app(testing: bool = False) -> Flask:
                 results.append({"person": None, "similarity": 0.0, "person_id": None})
 
         return {"count": len(results), "matches": results}
+
+    # --- Dashboard data ---
+    @app.get("/api/dashboard/estadisticas")
+    def dashboard_stats():
+        now = datetime.utcnow()
+        today_start = datetime(now.year, now.month, now.day)
+        week_start = today_start - timedelta(days=6)
+
+        alerts_today_q = Alert.query.filter(Alert.created_at >= today_start)
+        alerts_today = alerts_today_q.count()
+
+        role_expr = func.lower(func.coalesce(Person.role, ""))
+        critical_alerts = (
+            alerts_today_q.join(Person, Alert.person_id == Person.id, isouter=True)
+            .filter(
+                role_expr.contains("negra")
+                | role_expr.contains("roja")
+                | role_expr.contains("black")
+            )
+            .count()
+        )
+
+        cameras_total = Camera.query.count()
+        active_since = now - timedelta(hours=24)
+        cameras_active = (
+            db.session.query(func.count(func.distinct(Alert.camera_id)))
+            .filter(Alert.created_at >= active_since)
+            .scalar()
+            or 0
+        )
+
+        matches_by_site: list[dict] = []
+        site_rows: Iterable[tuple[str, int]] = (
+            db.session.query(Site.name, func.count(Alert.id))
+            .select_from(Site)
+            .outerjoin(Camera, Camera.site_id == Site.id)
+            .outerjoin(Alert, Alert.camera_id == Camera.id)
+            .group_by(Site.id)
+            .order_by(func.count(Alert.id).desc())
+            .limit(8)
+            .all()
+        )
+        for name, count in site_rows:
+            matches_by_site.append({"site": name, "count": count})
+
+        alerts_series = []
+        total_series = 0
+        for i in range(7):
+            day_start = week_start + timedelta(days=i)
+            day_end = day_start + timedelta(days=1)
+            cnt = (
+                Alert.query.filter(Alert.created_at >= day_start)
+                .filter(Alert.created_at < day_end)
+                .count()
+            )
+            alerts_series.append({"label": day_start.strftime("%d/%m"), "count": cnt})
+            total_series += cnt
+
+        return {
+            "alerts_today": alerts_today,
+            "critical_alerts": critical_alerts,
+            "cameras_total": cameras_total,
+            "cameras_active": cameras_active,
+            "cameras_inactive": max(cameras_total - cameras_active, 0),
+            "matches_by_site": matches_by_site,
+            "alerts_series": alerts_series,
+            "series_total": total_series,
+            "sites_with_alerts": len([m for m in matches_by_site if m["count"] > 0]),
+        }
+
+    @app.get("/api/dashboard/ultimas-alertas")
+    def dashboard_latest_alerts():
+        alerts = Alert.query.order_by(Alert.created_at.desc()).limit(25).all()
+        serialized = []
+        for alert in alerts:
+            person_name = alert.person.full_name if alert.person else None
+            role = alert.person.role if alert.person else None
+            level = _risk_level(role)
+            serialized.append(
+                {
+                    "id": alert.id,
+                    "created_at": alert.created_at.isoformat(),
+                    "site": alert.camera.site.name if alert.camera and alert.camera.site else None,
+                    "camera": alert.camera.name if alert.camera else None,
+                    "person": person_name,
+                    "similarity": alert.similarity,
+                    "risk_level": level,
+                    "risk_label": "Crítica" if level == "critical" else "Advertencia" if level == "warning" else "Normal",
+                    "thumbnail_url": None,
+                }
+            )
+        return {"alerts": serialized}
+
+    @app.get("/api/dashboard/tiempo-real")
+    def dashboard_live():
+        @stream_with_context
+        def stream():
+            last_id = None
+            while True:
+                latest = Alert.query.order_by(Alert.created_at.desc()).first()
+                payload = {"type": "heartbeat"}
+                if latest and latest.id != last_id:
+                    last_id = latest.id
+                    payload = {"type": "alert", "id": latest.id, "created_at": latest.created_at.isoformat()}
+                yield f"data: {json.dumps(payload)}\n\n"
+                time.sleep(5)
+
+        return Response(stream(), mimetype="text/event-stream")
 
     # --- Alerts ---
     @app.get("/api/alerts")

@@ -45,11 +45,21 @@ class Person(db.Model):
     role = db.Column(db.String(120), nullable=True)
     embeddings = db.relationship("Embedding", backref="person", cascade="all, delete-orphan")
 
+    @property
+    def risk_level(self) -> str:
+        role_lower = (self.role or "").lower()
+        if "negra" in role_lower or "roja" in role_lower or "black" in role_lower:
+            return "critical"
+        if "gris" in role_lower or "watch" in role_lower or "observ" in role_lower:
+            return "warning"
+        return "info"
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "full_name": self.full_name,
             "role": self.role,
+            "risk_level": self.risk_level,
             "embeddings": [e.to_dict() for e in self.embeddings],
         }
 
@@ -84,6 +94,7 @@ class Alert(db.Model):
             "created_at": self.created_at.isoformat(),
             "similarity": self.similarity,
             "person": self.person.to_dict() if self.person else None,
+            "risk_level": self.person.risk_level if self.person else "info",
             "camera": self.camera.to_dict() if self.camera else None,
             "message": self.message,
         }
