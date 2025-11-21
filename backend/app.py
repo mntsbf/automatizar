@@ -25,7 +25,7 @@ from flask_cors import CORS
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from werkzeug.utils import secure_filename
-from .database import db
+from .database import db, ensure_sqlite_schema
 from .models import Alert, Camera, Embedding, FacePhoto, Person, Setting, Site
 from .recognition import (
     build_person_bank_from_persons,
@@ -177,6 +177,7 @@ def create_app(testing: bool = False) -> Flask:
 
     with app.app_context():
         db.create_all()
+        ensure_sqlite_schema(db)
         _ensure_default_settings()
         _rebuild_bank()
 
