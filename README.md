@@ -85,8 +85,14 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 - **Anti-spoofing**: `is_live_face` usa modelo ONNX si está disponible y, si no, heurísticas de textura/saturación. Solo genera embedding si `live` supera el umbral.
 - **Preprocesamiento**: `preprocess_face` alinea los ojos, corrige iluminación con CLAHE y normaliza a 112x112 antes de ArcFace/face_recognition.
 - **Embeddings modernos**: `generate_embedding` elige ArcFace (InsightFace) si está instalado; si no, recurre a face_recognition o OpenCV ligero.
-- **Matching**: `recognize_faces` compara contra todas las fotos de cada persona con distancia coseno (umbral por defecto 0.38, margen 0.08, top_k=5) y descarta empates.
+- **Matching**: `recognize_faces` compara contra todas las fotos de cada persona con distancia coseno (umbral por defecto 0.45, margen 0.08, top_k=5) y descarta empates.
 - **Dataset incremental**: si una coincidencia es confiable (`similarity >= incremental_threshold`, p.ej. 0.85) se puede llamar `save_incremental_sample` para guardar automáticamente el recorte y su embedding. Se activa con `--no-incremental` para deshabilitar en el agente o `save_incremental=true` en `/api/recognize`.
+
+### Pipeline perfeccionado (copiar/pegar)
+- **Anti-spoofing**: `es_rostro_real` / `is_live_face` usan SilentFace ONNX si está disponible; `spoof_threshold` recomendado 0.5-0.7.
+- **Alineación + luz**: `alinear_rostro` rota y centra con landmarks (ojos/nariz/boca) y `normalizar_luz` aplica CLAHE + bilateral para recuperar detalle en cámaras baratas.
+- **Filtro de calidad**: `evaluar_calidad` devuelve score 0-1 (blur, contraste, iluminación y ángulo); por defecto se descartan muestras <0.6.
+- **Embeddings modernos**: `generar_embedding_perfeccionado` usa ArcFace/InsightFace si está instalado, combina top_k embeddings y devuelve metadata (bbox, live, quality). Umbral sugerido de match con coseno: 0.45–0.55.
 
 ## Endpoints principales
 - `GET /api/health` — estado del servidor.

@@ -38,6 +38,12 @@ _haar_detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_fron
 _anti_spoof_net = None  # Cargado bajo demanda
 _arcface_app = None  # Cache de modelo InsightFace
 
+# Parámetros por defecto para el pipeline perfeccionado
+DEFAULT_FACE_SIZE = (112, 112)  # ArcFace/InsightFace suelen usar 112x112
+DEFAULT_SPOOF_THRESHOLD = 0.5
+DEFAULT_QUALITY_THRESHOLD = 0.6
+DEFAULT_MATCH_THRESHOLD = 0.45  # menor = más estricto (distancia coseno)
+
 
 def _opencv_embedding(gray_face: np.ndarray) -> Optional[List[float]]:
     """Genera un embedding simple con OpenCV (Haar + vector normalizado)."""
@@ -112,6 +118,69 @@ def is_live_face(face_bgr: np.ndarray, threshold: float = 0.5) -> tuple[bool, di
     return live_score >= threshold, metrics
 
 
+def es_rostro_real(face_bgr: np.ndarray, threshold: float = DEFAULT_SPOOF_THRESHOLD) -> bool:
+    """Alias simple orientado al usuario para el chequeo de anti-spoofing."""
+
+    ok, _metrics = is_live_face(face_bgr, threshold=threshold)
+    return ok
+
+
+def normalizar_luz(face_bgr: np.ndarray) -> np.ndarray:
+    """Mejora iluminación con CLAHE y corrección de contraste local."""
+
+    lab = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l_eq = clahe.apply(l)
+    lab_eq = cv2.merge((l_eq, a, b))
+    enhanced = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
+    # Suavizar sombras duras manteniendo detalle
+    enhanced = cv2.bilateralFilter(enhanced, d=5, sigmaColor=50, sigmaSpace=50)
+    return enhanced
+
+
+def alinear_rostro(
+    img_bgr: np.ndarray,
+    landmarks: Optional[dict] = None,
+    output_size: tuple[int, int] = DEFAULT_FACE_SIZE,
+    padding: float = 0.25,
+) -> np.ndarray:
+    """Alinea y recorta un rostro usando landmarks (ojos/boca) si existen."""
+
+    rotated = align_face(img_bgr, landmarks)
+    h, w = rotated.shape[:2]
+
+    if landmarks:
+        points = []
+        for key in ("left_eye", "right_eye", "nose_tip", "top_lip", "bottom_lip"):
+            pts = landmarks.get(key)
+            if pts is None:
+                continue
+            points.extend(pts)
+        if points:
+            pts_arr = np.array(points)
+            x1, y1 = pts_arr.min(axis=0)
+            x2, y2 = pts_arr.max(axis=0)
+            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+            bw, bh = (x2 - x1), (y2 - y1)
+            size = max(bw, bh)
+            size *= 1 + padding * 2
+            x1 = int(max(0, cx - size / 2))
+            y1 = int(max(0, cy - size / 2))
+            x2 = int(min(w, cx + size / 2))
+            y2 = int(min(h, cy + size / 2))
+            cropped = rotated[y1:y2, x1:x2]
+        else:
+            cropped = rotated
+    else:
+        cropped = rotated
+
+    if cropped.size == 0:
+        cropped = rotated
+
+    return cv2.resize(cropped, output_size)
+
+
 def _get_arcface_app():
     """Carga (lazy) el modelo InsightFace para embeddings ArcFace."""
 
@@ -170,6 +239,50 @@ def preprocess_face(face_bgr: np.ndarray, landmarks: Optional[dict] = None, size
     return resized
 
 
+def evaluar_calidad(
+    face_bgr: np.ndarray,
+    landmarks: Optional[dict] = None,
+    min_size: int = 80,
+    blur_threshold: float = 90.0,
+    brightness_range: tuple[int, int] = (60, 190),
+    angle_limit: float = 25.0,
+) -> float:
+    """Evalúa la calidad del recorte de rostro y retorna score 0..1."""
+
+    h, w = face_bgr.shape[:2]
+    if min(h, w) < min_size:
+        return 0.0
+
+    gray = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
+    blur_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+    blur_score = min(1.0, blur_var / blur_threshold)
+
+    mean_light = gray.mean()
+    low, high = brightness_range
+    mid = (low + high) / 2
+    light_score = 1.0 - min(1.0, abs(mean_light - mid) / mid)
+
+    contrast_score = min(1.0, gray.std() / 64.0)
+
+    angle_penalty = 0.0
+    if landmarks and landmarks.get("left_eye") and landmarks.get("right_eye"):
+        left = np.mean(landmarks["left_eye"], axis=0)
+        right = np.mean(landmarks["right_eye"], axis=0)
+        dy, dx = right[1] - left[1], right[0] - left[0]
+        angle = abs(np.degrees(np.arctan2(dy, dx)))
+        if angle > angle_limit:
+            angle_penalty = min(0.5, (angle - angle_limit) / 90.0)
+
+    score = (
+        0.35 * blur_score
+        + 0.25 * contrast_score
+        + 0.2 * light_score
+        + 0.2 * min(1.0, min(h, w) / (min_size * 2))
+    )
+    score = max(0.0, min(1.0, score - angle_penalty))
+    return float(score)
+
+
 def generate_embedding(face_bgr: np.ndarray, landmarks: Optional[dict] = None) -> Optional[List[float]]:
     """Genera un embedding con el mejor backend disponible.
 
@@ -203,6 +316,41 @@ def generate_embedding(face_bgr: np.ndarray, landmarks: Optional[dict] = None) -
     return _opencv_embedding(gray)
 
 
+def generar_embedding_perfeccionado(
+    frame_bgr: np.ndarray,
+    live_check: bool = True,
+    spoof_threshold: float = DEFAULT_SPOOF_THRESHOLD,
+    quality_threshold: float = DEFAULT_QUALITY_THRESHOLD,
+    preprocess_size: tuple[int, int] = DEFAULT_FACE_SIZE,
+    top_k: int = 1,
+) -> tuple[Optional[List[float]], dict]:
+    """Pipeline de extremo a extremo con anti-spoofing, alineado y filtros."""
+
+    detections = robust_detect_and_encode(
+        frame_bgr,
+        live_check=live_check,
+        spoof_threshold=spoof_threshold,
+        preprocess_size=preprocess_size,
+        quality_threshold=quality_threshold,
+    )
+
+    if not detections:
+        return None, {"reason": "no_face_or_low_quality"}
+
+    ordered = sorted(detections, key=lambda d: d.get("quality", 0.0), reverse=True)
+    embeddings = [d["embedding"] for d in ordered[:top_k]]
+    merged = combinar_embeddings(embeddings)
+    info = {
+        "live": ordered[0].get("live", True),
+        "quality": ordered[0].get("quality", None),
+        "bbox": ordered[0].get("bbox"),
+        "count": len(ordered),
+    }
+    if not merged:
+        info["reason"] = "embedding_failed"
+    return merged, info
+
+
 def require_face_recognition():
     """Devuelve la librería dlib o lanza un error descriptivo si no está instalada."""
 
@@ -226,8 +374,26 @@ def _collect_face_landmarks(rgb_image, locations):
         return [None for _ in locations]
     parsed = []
     for lm in landmarks:
-        parsed.append({"left_eye": lm.get("left_eye"), "right_eye": lm.get("right_eye")})
+        parsed.append(
+            {
+                "left_eye": lm.get("left_eye"),
+                "right_eye": lm.get("right_eye"),
+                "nose_tip": lm.get("nose_tip"),
+                "top_lip": lm.get("top_lip"),
+                "bottom_lip": lm.get("bottom_lip"),
+            }
+        )
     return parsed
+
+
+def _shift_landmarks(landmarks: dict, offset: tuple[int, int]) -> dict:
+    """Ajusta landmarks absolutos a coordenadas relativas del recorte."""
+
+    ox, oy = offset
+    shifted: dict[str, list[tuple[float, float]]] = {}
+    for key, pts in landmarks.items():
+        shifted[key] = [(float(x - ox), float(y - oy)) for x, y in pts]
+    return shifted
 
 
 def robust_detect_and_encode(
@@ -235,6 +401,7 @@ def robust_detect_and_encode(
     live_check: bool = False,
     spoof_threshold: float = 0.5,
     preprocess_size: tuple[int, int] = (112, 112),
+    quality_threshold: float = 0.0,
 ) -> List[dict]:
     """Detecta caras, aplica anti-spoofing y devuelve embeddings enriquecidos.
 
@@ -249,12 +416,17 @@ def robust_detect_and_encode(
         landmarks = _collect_face_landmarks(rgb, locations)
         for (top, right, bottom, left), lm in zip(locations, landmarks):
             face_crop = image[top:bottom, left:right]
-            pre = preprocess_face(face_crop, lm, preprocess_size)
+            rel_lm = _shift_landmarks(lm, (left, top)) if lm else None
+            aligned = alinear_rostro(face_crop, rel_lm, output_size=preprocess_size)
+            pre = normalizar_luz(aligned)
             live_ok = True
             metrics: Dict[str, float] = {}
             if live_check:
                 live_ok, metrics = is_live_face(pre, threshold=spoof_threshold)
             if not live_ok:
+                continue
+            quality = evaluar_calidad(pre, rel_lm)
+            if quality_threshold and quality < quality_threshold:
                 continue
             emb = generate_embedding(pre, lm)
             if emb:
@@ -263,6 +435,7 @@ def robust_detect_and_encode(
                     "embedding": emb,
                     "live": live_ok,
                     "metrics": metrics,
+                    "quality": quality,
                 })
         return results
 
@@ -272,12 +445,16 @@ def robust_detect_and_encode(
         crop = image[y : y + h, x : x + w]
         if crop.size == 0:
             continue
-        pre = preprocess_face(crop, None, preprocess_size)
+        aligned = alinear_rostro(crop, None, output_size=preprocess_size)
+        pre = normalizar_luz(aligned)
         live_ok = True
         metrics: Dict[str, float] = {}
         if live_check:
             live_ok, metrics = is_live_face(pre, threshold=spoof_threshold)
         if not live_ok:
+            continue
+        quality = evaluar_calidad(pre, None)
+        if quality_threshold and quality < quality_threshold:
             continue
         emb = generate_embedding(pre, None)
         if emb:
@@ -287,6 +464,7 @@ def robust_detect_and_encode(
                 "embedding": emb,
                 "live": live_ok,
                 "metrics": metrics,
+                "quality": quality,
             })
     return results
 
@@ -343,10 +521,53 @@ def encode_image_file(path: str) -> Optional[List[float]]:
     return encode_image_array(image)
 
 
+def combinar_embeddings(
+    embeddings: Sequence[Sequence[float]],
+    mode: str = "mean",
+    top_k: Optional[int] = None,
+    weights: Optional[Sequence[float]] = None,
+) -> Optional[List[float]]:
+    """Combina múltiples embeddings en uno solo normalizado."""
+
+    if not embeddings:
+        return None
+
+    arr = np.stack([_normalize(v) for v in embeddings])
+    if weights is not None and len(weights) == len(arr):
+        w = np.array(weights, dtype=np.float32)
+        w = w / (w.sum() or 1.0)
+    else:
+        w = None
+
+    if top_k and top_k > 0 and len(arr) > top_k:
+        if w is not None:
+            order = np.argsort(w)[::-1][:top_k]
+        else:
+            # Seleccionar las muestras más cercanas al centroide preliminar
+            centroid = arr.mean(axis=0)
+            dists = np.linalg.norm(arr - centroid, axis=1)
+            order = np.argsort(dists)[:top_k]
+        arr = arr[order]
+        if w is not None:
+            w = w[order]
+
+    if mode == "median":
+        merged = np.median(arr, axis=0)
+    elif mode == "top":
+        merged = arr[0]
+    else:  # mean o weighted
+        if w is not None:
+            merged = (arr * w[:, None]).sum(axis=0)
+        else:
+            merged = arr.mean(axis=0)
+
+    return _normalize(merged).tolist()
+
+
 def recognize_faces(
     frame_bgr: np.ndarray,
     bank: Sequence["PersonEmbeddings"],
-    threshold: float = 0.38,
+    threshold: float = DEFAULT_MATCH_THRESHOLD,
     margin: float = 0.08,
     top_k: int = 5,
     live_check: bool = True,
@@ -443,7 +664,7 @@ def build_person_bank_from_persons(persons) -> List[PersonEmbeddings]:  # type: 
 def best_person_match(
     encoding: Sequence[float],
     bank: Sequence[PersonEmbeddings],
-    threshold: float = 0.38,
+    threshold: float = DEFAULT_MATCH_THRESHOLD,
     margin: float = 0.08,
     top_k: int = 5,
 ):
