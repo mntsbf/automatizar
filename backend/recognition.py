@@ -45,6 +45,18 @@ DEFAULT_QUALITY_THRESHOLD = 0.6
 DEFAULT_MATCH_THRESHOLD = 0.45  # menor = más estricto (distancia coseno)
 
 
+def has_heavy_embedding_backend() -> bool:
+    """Indica si hay un backend de embeddings robusto disponible.
+
+    Se considera "robusto" cuando existe ``face_recognition`` (dlib) o el
+    módulo de InsightFace/ArcFace. Esto nos permite ajustar umbrales de
+    coincidencia: en modo liviano (sólo OpenCV), los embeddings son menos
+    discriminativos y conviene usar tolerancias más permisivas.
+    """
+
+    return face_recognition is not None or FaceAnalysis is not None
+
+
 def _opencv_embedding(gray_face: np.ndarray) -> Optional[List[float]]:
     """Genera un embedding simple con OpenCV (Haar + vector normalizado)."""
 

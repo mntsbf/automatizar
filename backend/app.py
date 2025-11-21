@@ -32,6 +32,7 @@ from .recognition import (
     build_person_bank_from_persons,
     detect_and_encode,
     encode_image_array,
+    has_heavy_embedding_backend,
     parse_embedding,
     robust_detect_and_encode,
     recognize_faces,
@@ -64,6 +65,29 @@ def _ensure_default_settings():
         setting = Setting.query.get(key)
         if not setting:
             db.session.add(Setting(key=key, value=value))
+    # Si no hay backend pesado (dlib/ArcFace), subimos la tolerancia/margen
+    # mínimos para que el modo liviano (OpenCV) no descarte coincidencias
+    # válidas por embeddings menos discriminativos.
+    if not has_heavy_embedding_backend():
+        tol = Setting.query.get("tolerance")
+        if tol is None:
+            db.session.add(Setting(key="tolerance", value="0.6"))
+        else:
+            try:
+                if float(tol.value) < 0.55:
+                    tol.value = "0.6"
+            except ValueError:
+                tol.value = "0.6"
+
+        margin = Setting.query.get("margin")
+        if margin is None:
+            db.session.add(Setting(key="margin", value="0.12"))
+        else:
+            try:
+                if float(margin.value) < 0.1:
+                    margin.value = "0.12"
+            except ValueError:
+                margin.value = "0.12"
     db.session.commit()
 
 
@@ -73,6 +97,23 @@ def _get_setting_value(key: str, default: str) -> str:
 
 
 _EMBEDDING_BANK_CACHE: dict[str, object] = {"bank": [], "version": 0}
+
+
+def _default_match_threshold() -> float:
+    """Devuelve un umbral adecuado según el backend de embeddings activo."""
+
+    base = float(_get_setting_value("tolerance", "0.38"))
+    if not has_heavy_embedding_backend():
+        # Con embeddings livianos (OpenCV) necesitamos una tolerancia mayor.
+        base = max(base, 0.6)
+    return base
+
+
+def _default_margin() -> float:
+    base = float(_get_setting_value("margin", "0.08"))
+    if not has_heavy_embedding_backend():
+        base = max(base, 0.12)
+    return base
 
 
 def _load_persons_with_embeddings() -> list[Person]:
@@ -357,17 +398,6 @@ def create_app(testing: bool = False) -> Flask:
         if bgr is None:
             return {"error": "No se pudo leer la imagen"}, 400
 
-        threshold = float(
-            request.form.get(
-                "threshold",
-                request.form.get("distance_threshold", _get_setting_value("tolerance", "0.38")),
-            )
-        )
-        margin = float(request.form.get("margin", _get_setting_value("margin", "0.08")))
-        top_k = int(request.form.get("top_k", _get_setting_value("top_k", "5")))
-        spoof_threshold = float(request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5")))
-        live_check = request.form.get("live_check", "false").lower() == "true"
-
         # Permite forzar la recarga del banco en cada consulta (útil si hubo
         # subidas recientes y el proceso corre con múltiples workers).
         force_bank = request.form.get("refresh_bank", "true").lower() == "true"
@@ -379,6 +409,14 @@ def create_app(testing: bool = False) -> Flask:
                 "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
                 "bank_size": 0,
             }, 404
+
+        threshold_raw = request.form.get("threshold") or request.form.get("distance_threshold")
+        threshold = float(threshold_raw) if threshold_raw is not None else _default_match_threshold()
+        margin_raw = request.form.get("margin")
+        margin = float(margin_raw) if margin_raw is not None else _default_margin()
+        top_k = int(request.form.get("top_k", _get_setting_value("top_k", "5")))
+        spoof_threshold = float(request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5")))
+        live_check = request.form.get("live_check", "false").lower() == "true"
 
         detections = robust_detect_and_encode(
             bgr,
@@ -450,16 +488,10 @@ def create_app(testing: bool = False) -> Flask:
         bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
         if bgr is None:
             return {"error": "No se pudo leer la imagen"}, 400
-        threshold = float(
-            request.form.get(
-                "threshold",
-                request.form.get(
-                    "distance_threshold",
-                    _get_setting_value("tolerance", "0.38"),
-                ),
-            )
-        )
-        margin = float(request.form.get("margin", _get_setting_value("margin", "0.08")))
+        threshold_raw = request.form.get("threshold") or request.form.get("distance_threshold")
+        threshold = float(threshold_raw) if threshold_raw is not None else _default_match_threshold()
+        margin_raw = request.form.get("margin")
+        margin = float(margin_raw) if margin_raw is not None else _default_margin()
         spoof_threshold = float(
             request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5"))
         )
