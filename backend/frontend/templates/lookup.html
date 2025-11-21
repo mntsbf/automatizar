@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Buscar persona - FaceHub{% endblock %}
+{% block header_title %}Buscar persona por foto{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-primary text-white">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-search"></i>
+          <span>Sube una foto</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <form id="lookup-form" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label">Imagen de rostro</label>
+            <input class="form-control" type="file" name="image" accept="image/*" required />
+            <div class="form-text">Formatos comunes (JPG, PNG). Se alinea y normaliza automáticamente.</div>
+          </div>
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">Umbral</label>
+              <input class="form-control" type="number" step="0.01" min="0" max="1" name="threshold" value="{{ tolerance_default }}" />
+              <div class="form-text">Distancia máx. (coseno). Más bajo = más estricto.</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Margen</label>
+              <input class="form-control" type="number" step="0.01" min="0" max="1" name="margin" value="{{ margin_default }}" />
+              <div class="form-text">Separación vs. segundo mejor.</div>
+            </div>
+          </div>
+          <div class="form-check form-switch mt-3">
+            <input class="form-check-input" type="checkbox" role="switch" id="live_check" name="live_check" />
+            <label class="form-check-label" for="live_check">Forzar anti-spoofing</label>
+          </div>
+          <button class="btn btn-primary w-100 mt-3" type="submit">
+            <i class="bi bi-search me-1"></i> Buscar coincidencia
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-person-check-fill text-success"></i>
+          <span>Resultado</span>
+        </div>
+        <span class="badge bg-info" id="bank-version">Banco v{{ bank_version }}</span>
+      </div>
+      <div class="card-body">
+        <div id="lookup-alert" class="alert d-none" role="alert"></div>
+        <div id="lookup-result" class="text-muted">Sube una foto para iniciar la búsqueda.</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='lookup.js') }}"></script>
+{% endblock %}

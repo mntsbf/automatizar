@@ -39,6 +39,11 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/buscar-persona') else 'text-white-50' }}" href="{{ url_for('buscar_persona_view') }}">
+            <i class="bi bi-search me-2"></i>Buscar persona
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {{ 'active' if current.startswith('/config') else 'text-white-50' }}" href="{{ url_for('config_view') }}">
             <i class="bi bi-gear-fill me-2"></i>Configuración
           </a>

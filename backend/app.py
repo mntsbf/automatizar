@@ -28,6 +28,7 @@ from werkzeug.utils import secure_filename
 from .database import db, ensure_sqlite_schema
 from .models import Alert, Camera, Embedding, FacePhoto, Person, Setting, Site
 from .recognition import (
+    best_person_match,
     build_person_bank_from_persons,
     detect_and_encode,
     encode_image_array,
@@ -221,6 +222,17 @@ def create_app(testing: bool = False) -> Flask:
     def config_view():
         return render_template("config.html", user_name="Administrador", user_role="Admin")
 
+    @app.route("/buscar-persona")
+    def buscar_persona_view():
+        return render_template(
+            "lookup.html",
+            user_name="Operador",
+            user_role="Verificación",
+            tolerance_default=_get_setting_value("tolerance", "0.38"),
+            margin_default=_get_setting_value("margin", "0.08"),
+            bank_version=_EMBEDDING_BANK_CACHE.get("version", 0),
+        )
+
     # --- Sites ---
     @app.get("/api/sites")
     def list_sites():
@@ -331,6 +343,92 @@ def create_app(testing: bool = False) -> Flask:
             _rebuild_bank()
         status = 201 if created else 400
         return {"created": len(created), "photos": created, "errors": errors}, status
+
+    @app.post("/buscar-persona")
+    def buscar_persona():
+        """Busca coincidencias usando la foto subida y el banco actual."""
+
+        image_file = request.files.get("image") or request.files.get("photo")
+        if not image_file:
+            return {"error": "Incluye un archivo en 'image' o 'photo'"}, 400
+
+        data = np.frombuffer(image_file.read(), dtype=np.uint8)
+        bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return {"error": "No se pudo leer la imagen"}, 400
+
+        threshold = float(
+            request.form.get(
+                "threshold",
+                request.form.get("distance_threshold", _get_setting_value("tolerance", "0.38")),
+            )
+        )
+        margin = float(request.form.get("margin", _get_setting_value("margin", "0.08")))
+        top_k = int(request.form.get("top_k", _get_setting_value("top_k", "5")))
+        spoof_threshold = float(request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5")))
+        live_check = request.form.get("live_check", "false").lower() == "true"
+
+        bank = _get_bank()
+        if not bank:
+            return {"resultado": "desconocido", "mensaje": "No hay embeddings registrados"}, 404
+
+        detections = robust_detect_and_encode(
+            bgr,
+            live_check=live_check,
+            spoof_threshold=spoof_threshold,
+        )
+
+        if not detections:
+            return {"resultado": "sin_rostro", "mensaje": "No se detectaron rostros válidos"}, 400
+
+        best_payload: dict | None = None
+        fallback_similarity = None
+        for det in detections:
+            entry, similarity, diagnostics = best_person_match(
+                det["embedding"], bank, threshold=threshold, margin=margin, top_k=top_k
+            )
+            if entry and similarity is not None:
+                if not best_payload or similarity > best_payload["similarity"]:
+                    best_payload = {
+                        "entry": entry,
+                        "similarity": similarity,
+                        "diagnostics": diagnostics,
+                        "bbox": det.get("bbox"),
+                        "live": det.get("live", True),
+                    }
+                continue
+
+            # Si no hay match, calcula el mejor candidato para reporte (sin umbral)
+            _, fallback_sim, _ = best_person_match(
+                det["embedding"], bank, threshold=1.0, margin=0.0, top_k=top_k
+            )
+            if fallback_sim is not None:
+                fallback_similarity = max(fallback_similarity or 0.0, fallback_sim)
+
+        if best_payload:
+            entry = best_payload["entry"]
+            similarity = best_payload["similarity"]
+            return {
+                "resultado": "match",
+                "persona": {
+                    "id": entry.person_id,
+                    "nombre": entry.person_name,
+                    "list_tag": entry.list_tag,
+                    "confianza": round(float(similarity), 4),
+                    "distancia": round(float(1.0 - similarity), 4),
+                },
+                "diagnosticos": best_payload.get("diagnostics"),
+                "bbox": best_payload.get("bbox"),
+                "live": best_payload.get("live", True),
+                "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
+            }
+
+        return {
+            "resultado": "desconocido",
+            "mensaje": "No se encontró una coincidencia bajo el umbral",
+            "similaridad_maxima": round(float(fallback_similarity or 0.0), 4),
+            "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
+        }
 
     @app.post("/api/recognize")
     def recognize_from_image():

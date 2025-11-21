@@ -121,6 +121,7 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 - `backend/frontend/static/alerts.js`: filtros y tabla dinámica de alertas.
 - `backend/frontend/static/cameras.js`: creación de cámaras y contadores de actividad 24h.
 - `backend/frontend/static/persons.js`: alta de personas y embeddings.
+- `backend/frontend/static/lookup.js`: formulario para buscar una persona por foto y mostrar coincidencias.
 - `backend/frontend/static/config.js`: sincroniza y guarda parámetros globales.
 - `backend/frontend/static/styles.css`: estilos de dashboard (tiles, sidebar, badges de riesgo).
 
@@ -131,9 +132,28 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 - `POST /api/persons/<id>/embedding` — subir foto y crear embedding con `face_recognition` o modo liviano (se guarda la foto).
 - `POST /api/persons/<id>/photos` — subir varias fotos (campo `images`) y generar embeddings por foto.
 - `POST /api/recognize` — enviar imagen y devolver coincidencias (genera alerta si coincide).
+- `POST /buscar-persona` — subir foto puntual y devolver el mejor match (JSON simple con confianza/distancia).
 - `GET/POST /api/alerts` — recibir y consultar alertas (filtros por persona, sitio y riesgo con query params).
 - `GET /api/dashboard/estadisticas` — métricas para tarjetas y gráfico (alertas hoy, críticas, cámaras activas, serie de tiempo y top sedes).
 - `GET /api/dashboard/ultimas-alertas` — tabla con últimos eventos (sede, cámara, persona y nivel de riesgo).
 - `GET /api/dashboard/tiempo-real` — SSE sencillo para refrescar el dashboard cuando llegan nuevas alertas.
 - `POST /api/embeddings/refresh` — recalcula el banco en memoria tras agregar fotos/embeddings.
 - `GET/PUT /api/settings` — tolerancia, margen, tema y live refresh para el dashboard.
+
+#### Búsqueda puntual por foto (`POST /buscar-persona`)
+
+- `multipart/form-data` con campo `image` o `photo` (JPG/PNG).
+- Parámetros opcionales: `threshold` (distancia coseno), `margin` (separación vs. segundo mejor), `live_check=true|false` (anti-spoofing) y `spoof_threshold`.
+- Respuesta de match:
+
+```json
+{
+  "resultado": "match",
+  "persona": {"id": 12, "nombre": "Juan Pérez", "confianza": 0.92, "distancia": 0.08},
+  "diagnosticos": {"min_distance": 0.08, "second_best_distance": 0.21},
+  "bank_version": 1700000000
+}
+```
+
+- Si no hay coincidencias: `{ "resultado": "desconocido", "mensaje": "No se encontró una coincidencia bajo el umbral" }`
+- Si no se detectan rostros: `{ "resultado": "sin_rostro" }`
