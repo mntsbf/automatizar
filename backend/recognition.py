@@ -729,6 +729,47 @@ def best_person_match(
     return entry, similarity, diagnostics
 
 
+def best_similarity_no_threshold(
+    encoding: Sequence[float], bank: Sequence[PersonEmbeddings]
+) -> Optional[dict]:
+    """Devuelve el mejor candidato sin aplicar umbrales ni margen.
+
+    Se usa para diagnósticos o para relajar la decisión en modo liviano
+    (cuando los embeddings OpenCV son menos discriminativos).  Retorna un
+    diccionario con ``entry``, ``similarity``, ``distance`` y ``second_best``.
+    """
+
+    if not bank:
+        return None
+
+    sample = _normalize(encoding)
+    best: Optional[tuple[PersonEmbeddings, float]] = None
+    second: float = float("inf")
+
+    for entry in bank:
+        sims = entry.vectors @ sample
+        if sims.size == 0:
+            continue
+        sim = float(sims.max())
+        dist = 1.0 - sim
+        if best is None or dist < best[1]:
+            second = best[1] if best else second
+            best = (entry, dist)
+        elif dist < second:
+            second = dist
+
+    if best is None:
+        return None
+
+    entry, dist = best
+    return {
+        "entry": entry,
+        "similarity": 1.0 - dist,
+        "distance": dist,
+        "second_best_distance": second,
+    }
+
+
 # Mantener compatibilidad con el código previo: convierte el banco plano en uno agrupado
 def build_bank(records: Iterable[Tuple[int, str, str]]) -> List[PersonEmbeddings]:
     return build_person_bank([(pid, name, vec, None, None) for pid, name, vec in records])

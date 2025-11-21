@@ -34,6 +34,7 @@ from .recognition import (
     detect_and_encode,
     encode_image_array,
     has_heavy_embedding_backend,
+    best_similarity_no_threshold,
     parse_embedding,
     robust_detect_and_encode,
     recognize_faces,
@@ -181,6 +182,7 @@ def _lookup_embedding(
 
     entry, similarity, diagnostics = best_person_match(embedding, bank, threshold=thr, margin=mar, top_k=k)
     fallback_sim = None
+    raw_best = best_similarity_no_threshold(embedding, bank)
 
     if entry and similarity is not None:
         current_app.logger.info(
@@ -198,7 +200,28 @@ def _lookup_embedding(
         return entry, similarity, diagnostics, info
 
     # No se aceptó match: buscamos la mejor similitud para reportar
-    _, fallback_sim, _ = best_person_match(embedding, bank, threshold=1.0, margin=0.0, top_k=k)
+    if raw_best:
+        fallback_sim = raw_best.get("similarity")
+        # En modo liviano podemos relajar el umbral: los embeddings son menos
+        # discriminativos y pequeños cambios de iluminación dan distancias
+        # mayores. Permitimos un colchón adicional de 0.25 sobre el umbral.
+        if not has_heavy_embedding_backend():
+            relaxed = thr + 0.25
+            if raw_best.get("distance", 1.0) <= relaxed:
+                current_app.logger.info(
+                    "Match aceptado en modo relajado (light backend)",
+                    extra={
+                        "person_id": raw_best["entry"].person_id,
+                        "similarity": round(float(raw_best["similarity"]), 4),
+                        "distance": round(float(raw_best["distance"]), 4),
+                        "threshold": thr,
+                        "relaxed": relaxed,
+                        "bank_size": len(bank),
+                    },
+                )
+                return raw_best["entry"], raw_best["similarity"], diagnostics or {"mode": "relaxed"}, info
+    else:
+        _, fallback_sim, _ = best_person_match(embedding, bank, threshold=1.0, margin=0.0, top_k=k)
     current_app.logger.info(
         "Sin match bajo umbral",
         extra={
