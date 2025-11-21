@@ -31,6 +31,16 @@ const saveCheck = document.getElementById('scan-save');
 const liveCheck = document.getElementById('scan-live');
 const refreshCheck = document.getElementById('scan-refresh');
 const autoCheck = document.getElementById('scan-auto');
+const deviceSelect = document.getElementById('scan-device');
+
+const overlayText = document.querySelector('#scan-overlay span');
+
+const cameraHints = {
+  insecure:
+    'El navegador bloqueó la cámara en HTTP. Abre el panel en https:// o usa localhost para permitir el acceso.',
+  denied: 'Permiso de cámara denegado. Autoriza el uso de cámara en el navegador y vuelve a intentarlo.',
+  notfound: 'No se encontraron dispositivos de cámara disponibles.',
+};
 
 function setStatus(text, color = 'secondary') {
   statusBadge.textContent = text;
@@ -90,9 +100,35 @@ async function loadPersons() {
   }
 }
 
-async function startCamera() {
+async function loadDevices() {
+  if (!deviceSelect || !navigator.mediaDevices?.enumerateDevices) return;
+  deviceSelect.innerHTML = '<option value="">Predeterminada</option>';
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videos = devices.filter((d) => d.kind === 'videoinput');
+    videos.forEach((v, idx) => {
+      const opt = document.createElement('option');
+      opt.value = v.deviceId;
+      opt.textContent = v.label || `Cámara ${idx + 1}`;
+      deviceSelect.appendChild(opt);
+    });
+    if (!videos.length) setStatus(cameraHints.notfound, 'danger');
+  } catch (err) {
+    console.error('enumerateDevices failed', err);
+  }
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setStatus('Este navegador no soporta cámara', 'danger');
+    overlay.hidden = false;
+    if (overlayText) overlayText.textContent = cameraHints.notfound;
+    return;
+  }
+  try {
+    const constraints = { video: { facingMode: 'user' }, audio: false };
+    if (deviceSelect?.value) constraints.video = { deviceId: { exact: deviceSelect.value } };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
     video.srcObject = stream;
     overlay.hidden = true;
     captureBtn.disabled = false;
@@ -100,8 +136,13 @@ async function startCamera() {
     if (autoCheck?.checked) startLiveLoop();
   } catch (err) {
     console.error('camera error', err);
-    setStatus('Sin cámara', 'danger');
+    let msg = 'Sin cámara';
+    if (!window.isSecureContext) msg = cameraHints.insecure;
+    else if (err.name === 'NotAllowedError') msg = cameraHints.denied;
+    else if (err.name === 'NotFoundError') msg = cameraHints.notfound;
+    setStatus(msg, 'danger');
     overlay.hidden = false;
+    if (overlayText) overlayText.textContent = msg;
   }
 }
 
@@ -111,6 +152,7 @@ function stopCamera() {
     stream = null;
   }
   overlay.hidden = false;
+  if (overlayText) overlayText.textContent = 'Cámara detenida';
   captureBtn.disabled = true;
   setStatus('Cámara detenida', 'secondary');
   stopLiveLoop();
@@ -284,3 +326,4 @@ if (autoCheck)
 
 renderSteps();
 loadPersons();
+loadDevices();

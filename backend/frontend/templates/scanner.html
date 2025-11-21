@@ -45,9 +45,16 @@
               <label class="form-check-label" for="scan-refresh">Forzar recarga de banco</label>
             </div>
           </div>
-          <div class="col-md-4 d-flex align-items-end gap-2">
-            <button class="btn btn-outline-secondary w-100" id="scan-start"><i class="bi bi-camera-video"></i> Encender</button>
-            <button class="btn btn-primary w-100" id="scan-capture" disabled><i class="bi bi-record-circle"></i> Capturar</button>
+          <div class="col-md-4">
+            <label class="form-label">Cámara</label>
+            <select class="form-select mb-2" id="scan-device">
+              <option value="">Predeterminada</option>
+            </select>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary w-100" id="scan-start"><i class="bi bi-camera-video"></i> Encender</button>
+              <button class="btn btn-primary w-100" id="scan-capture" disabled><i class="bi bi-record-circle"></i> Capturar</button>
+            </div>
+            <div class="form-text">Si accedes por IP o red local, usa https o localhost para que el navegador habilite la cámara.</div>
           </div>
         </div>
         <div class="alert alert-info mt-3 d-flex align-items-center gap-2" id="scan-hint">
