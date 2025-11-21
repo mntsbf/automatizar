@@ -25,13 +25,19 @@ def ensure_sqlite_schema(db):
     def _ensure_columns(table: str, columns: dict[str, str]):
         existing = {col["name"] for col in inspector.get_columns(table)}
         for name, ddl in columns.items():
+            # Protect against malformed definitions (e.g., empty names) that could
+            # surface from partial edits or bad merges, which would otherwise emit
+            # invalid ALTER TABLE statements like "ADD COLUMN VARCHAR(50)".
+            if not name or not name.strip():
+                continue
+            if not ddl or not ddl.strip():
+                continue
             if name in existing:
                 continue
             # SQLAlchemy 2.x removed engine.execute; use an explicit connection.
-            # Include the column name in the DDL to avoid invalid statements such as
-            # "ADD COLUMN VARCHAR(50)" when upgrading legacy databases.
+            stmt = text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
             with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                conn.execute(stmt)
 
     # Align the persons table with new optional fields
     _ensure_columns(
