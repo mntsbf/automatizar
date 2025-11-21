@@ -145,6 +145,7 @@ def _save_face_photo(person: Person, storage, app: Flask, save_embedding_row: bo
         embedding=json.dumps(embedding),
         quality=quality,
         metadata_json=json.dumps(metadata),
+        registered_at=datetime.utcnow(),
     )
     db.session.add(photo)
 

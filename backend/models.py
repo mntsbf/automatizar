@@ -102,7 +102,7 @@ class FacePhoto(db.Model):
             "embedding": self.embedding,
             "quality": self.quality,
             "metadata": self.metadata_json,
-            "registered_at": self.registered_at.isoformat(),
+            "registered_at": self.registered_at.isoformat() if self.registered_at else None,
         }
 
 
