@@ -44,6 +44,11 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/scan') else 'text-white-50' }}" href="{{ url_for('scan_view') }}">
+            <i class="bi bi-person-video3 me-2"></i>Escaneo vivo
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {{ 'active' if current.startswith('/config') else 'text-white-50' }}" href="{{ url_for('config_view') }}">
             <i class="bi bi-gear-fill me-2"></i>Configuración
           </a>

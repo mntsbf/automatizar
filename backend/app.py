@@ -29,12 +29,14 @@ from werkzeug.utils import secure_filename
 from .database import db, ensure_sqlite_schema
 from .models import Alert, Camera, Embedding, FacePhoto, Person, Setting, Site
 from .recognition import (
+    analyze_scan_frame,
     best_person_match,
     build_person_bank_from_persons,
     detect_and_encode,
     encode_image_array,
     has_heavy_embedding_backend,
     best_similarity_no_threshold,
+    merge_scan_embeddings,
     parse_embedding,
     robust_detect_and_encode,
     recognize_faces,
@@ -328,6 +330,41 @@ def _save_face_photo(
     return photo, emb_row, None
 
 
+def _save_scan_photo(
+    person: Person,
+    frame_bgr: np.ndarray,
+    embedding: list[float],
+    app: Flask,
+    *,
+    note: str = "scan",
+    bbox: list[int] | tuple[int, int, int, int] | None = None,
+    quality: float | None = None,
+):
+    """Guarda un frame capturado durante el escaneo guiado."""
+
+    unique_name = f"scan_{person.id}_{uuid.uuid4().hex}.jpg"
+    faces_dir = _faces_dir(app)
+    file_path = os.path.join(faces_dir, unique_name)
+    cv2.imwrite(file_path, frame_bgr)
+    rel_path = os.path.relpath(file_path, app.static_folder)
+
+    metadata = {"box": _safe_bbox(bbox), "note": note}
+    photo = FacePhoto(
+        person=person,
+        file_path=rel_path,
+        embedding=json.dumps(embedding),
+        quality=quality or 0.8,
+        metadata_json=json.dumps(metadata),
+        registered_at=datetime.utcnow(),
+    )
+    db.session.add(photo)
+    app.logger.info(
+        "Frame de escaneo guardado",
+        extra={"person_id": person.id, "path": rel_path, "bbox": metadata["box"], "quality": quality},
+    )
+    return photo
+
+
 def create_app(testing: bool = False) -> Flask:
     app = Flask(__name__, template_folder="frontend/templates", static_folder="frontend/static")
     base_dir = os.path.abspath(os.path.dirname(__file__))
@@ -386,6 +423,15 @@ def create_app(testing: bool = False) -> Flask:
             tolerance_default=_get_setting_value("tolerance", "0.38"),
             margin_default=_get_setting_value("margin", "0.08"),
             bank_version=_EMBEDDING_BANK_CACHE.get("version", 0),
+        )
+
+    @app.route("/scan")
+    def scan_view():
+        return render_template(
+            "scanner.html",
+            user_name="Operador",
+            user_role="Liveness",
+            tolerance_default=_get_setting_value("tolerance", "0.38"),
         )
 
     # --- Sites ---
@@ -498,6 +544,87 @@ def create_app(testing: bool = False) -> Flask:
             _rebuild_bank()
         status = 201 if created else 400
         return {"created": len(created), "photos": created, "errors": errors}, status
+
+    @app.post("/api/scan/frame")
+    def scan_frame():
+        """Valida un paso guiado (giro/sonrisa) y devuelve embedding si es válido."""
+
+        image_file = request.files.get("image") or request.files.get("frame")
+        if not image_file:
+            return {"error": "Incluye un archivo en 'image' o 'frame'"}, 400
+
+        action = request.form.get("action", "frente")
+        live_check = request.form.get("live_check", "true").lower() == "true"
+        spoof_threshold = float(request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5")))
+        quality_threshold = float(request.form.get("quality_threshold", "0.55"))
+
+        data = np.frombuffer(image_file.read(), dtype=np.uint8)
+        bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return {"error": "No se pudo leer la imagen"}, 400
+
+        result = analyze_scan_frame(
+            bgr,
+            action,
+            live_check=live_check,
+            spoof_threshold=spoof_threshold,
+            quality_threshold=quality_threshold,
+        )
+        result["bbox"] = _safe_bbox(result.get("bbox"))
+        result["action"] = action
+
+        if result.get("reason") == "accion_no_reconocida":
+            return {"error": "Acción no soportada", "reason": result.get("reason")}, 400
+
+        person_id = request.form.get("person_id", type=int)
+        save_photo = request.form.get("save_photo", "false").lower() == "true"
+
+        if result.get("ok") and person_id and save_photo:
+            person = Person.query.get(person_id)
+            if person:
+                _save_scan_photo(
+                    person,
+                    bgr,
+                    result.get("embedding", []),
+                    app,
+                    note=f"scan:{action}",
+                    bbox=result.get("bbox"),
+                    quality=result.get("quality"),
+                )
+                db.session.commit()
+                _rebuild_bank()
+
+        status = 200 if result.get("ok") else 202
+        return result, status
+
+    @app.post("/api/scan/finalize")
+    def finalize_scan():
+        payload = request.get_json() or {}
+        embeddings = payload.get("embeddings") or []
+        if not embeddings:
+            return {"error": "Incluye una lista de embeddings"}, 400
+
+        mode = payload.get("mode", "median")
+        merged = merge_scan_embeddings(embeddings, mode=mode)
+        if not merged:
+            return {"error": "No se pudo combinar embeddings"}, 400
+
+        person_id = payload.get("person_id")
+        saved_id = None
+        if person_id:
+            person = Person.query.get_or_404(int(person_id))
+            row = Embedding(vector=json.dumps(merged), model=f"scan-{mode}", person=person)
+            db.session.add(row)
+            db.session.commit()
+            saved_id = row.id
+            _rebuild_bank()
+
+        return {
+            "embedding": merged,
+            "count": len(embeddings),
+            "mode": mode,
+            "saved_embedding_id": saved_id,
+        }, 201
 
     @app.post("/buscar-persona")
     def buscar_persona():

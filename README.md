@@ -116,6 +116,7 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 - `backend/frontend/templates/alerts.html`: módulo de alertas con filtros por riesgo/sede/persona y live toggle.
 - `backend/frontend/templates/cameras.html`: alta y listado de cámaras por sede.
 - `backend/frontend/templates/persons.html`: gestión de personas, roles/listas y subida de embedding por foto.
+- `backend/frontend/templates/scanner.html`: escaneo guiado con movimientos y liveness para capturar varias fotos.
 - `backend/frontend/templates/config.html`: ajustes de tolerancia, margen, tema y refresco en vivo.
 - `backend/frontend/static/dashboard.js`: lógica de Fetch + SSE para actualizar tarjetas, gráfica y tabla.
 - `backend/frontend/static/alerts.js`: filtros y tabla dinámica de alertas.
@@ -131,6 +132,8 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 - `GET/POST /api/persons` — registrar personas y embeddings en texto (nombre, rut, lista).
 - `POST /api/persons/<id>/embedding` — subir foto y crear embedding con `face_recognition` o modo liviano (se guarda la foto).
 - `POST /api/persons/<id>/photos` — subir varias fotos (campo `images`) y generar embeddings por foto.
+- `POST /api/scan/frame` — capturar un frame guiado (mirar al frente, girar, sonreír) con anti-spoofing y validación de movimiento.
+- `POST /api/scan/finalize` — combinar embeddings capturados y (opcional) guardarlos en la persona.
 - `POST /api/recognize` — enviar imagen y devolver coincidencias (genera alerta si coincide).
 - `POST /buscar-persona` — subir foto puntual y devolver el mejor match (JSON simple con confianza/distancia).
 - `GET/POST /api/alerts` — recibir y consultar alertas (filtros por persona, sitio y riesgo con query params).
@@ -157,3 +160,10 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 
 - Si no hay coincidencias: `{ "resultado": "desconocido", "mensaje": "No se encontró una coincidencia bajo el umbral" }`
 - Si no se detectan rostros: `{ "resultado": "sin_rostro" }`
+
+### Escáner vivo con movimientos
+
+- Vista `/scan`: abre la cámara, guía al usuario (frente, derecha, izquierda, arriba, abajo, sonreír) y captura frames de buena calidad.
+- `POST /api/scan/frame` espera `image` + `action` (frente|derecha|izquierda|arriba|abajo|sonreir), aplica anti-spoofing, verifica el movimiento con pose/landmarks y devuelve `embedding`, `pose`, `quality` y `bbox` si es válido.
+- `POST /api/scan/finalize` combina los embeddings (`mode=median` por defecto) y puede persistir el vector en la persona (`person_id`).
+- Usa los mismos umbrales de tolerancia/calidad que el resto del pipeline y permite guardar cada frame en la galería (`save_photo=true`).

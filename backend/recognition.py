@@ -151,6 +151,76 @@ def normalizar_luz(face_bgr: np.ndarray) -> np.ndarray:
     return enhanced
 
 
+def _smile_score_from_landmarks(landmarks: Optional[dict]) -> float:
+    """Devuelve una métrica simple de sonrisa usando la relación ancho/alto de la boca."""
+
+    if not landmarks or not landmarks.get("top_lip") or not landmarks.get("bottom_lip"):
+        return 0.0
+    pts = np.array(landmarks["top_lip"] + landmarks["bottom_lip"], dtype=np.float32)
+    if pts.size == 0:
+        return 0.0
+    xs = pts[:, 0]
+    ys = pts[:, 1]
+    width = float(xs.max() - xs.min())
+    height = float(ys.max() - ys.min()) + 1e-6
+    return float(width / height)
+
+
+def _pose_from_landmarks(landmarks: Optional[dict], bbox=None) -> dict:
+    """Estima yaw/pitch/roll aproximados usando ojos y nariz."""
+
+    pose = {"yaw": 0.0, "pitch": 0.0, "roll": 0.0}
+    if not landmarks:
+        return pose
+
+    left_eye = landmarks.get("left_eye")
+    right_eye = landmarks.get("right_eye")
+    nose = landmarks.get("nose_tip")
+    if left_eye and right_eye:
+        left = np.mean(left_eye, axis=0)
+        right = np.mean(right_eye, axis=0)
+        eye_center = (left + right) / 2
+        eye_dist = np.linalg.norm(right - left) + 1e-6
+        if nose:
+            nose_pt = np.mean(nose, axis=0)
+            yaw = (nose_pt[0] - eye_center[0]) / eye_dist
+            pitch = (nose_pt[1] - eye_center[1]) / eye_dist
+            pose["yaw"] = float(np.clip(yaw * 40.0, -45.0, 45.0))
+            pose["pitch"] = float(np.clip((pitch - 0.1) * 45.0, -45.0, 45.0))
+        dy, dx = right[1] - left[1], right[0] - left[0]
+        pose["roll"] = float(np.degrees(np.arctan2(dy, dx)))
+    elif bbox is not None:
+        top, right, bottom, left = bbox
+        w = float(right - left)
+        h = float(bottom - top)
+        if w and h:
+            pose["yaw"] = 0.0
+            pose["pitch"] = float(np.clip((h / w - 1.0) * 25.0, -30.0, 30.0))
+    return pose
+
+
+def _action_satisfied(action: str, pose: dict, smile_score: float, yaw_thr=12.0, pitch_thr=8.0, smile_thr=1.7) -> tuple[bool, str]:
+    """Evalúa si el movimiento solicitado se cumplió."""
+
+    yaw = pose.get("yaw", 0.0)
+    pitch = pose.get("pitch", 0.0)
+    roll = pose.get("roll", 0.0)
+
+    if action in ("frente", "center"):
+        return (abs(yaw) < yaw_thr and abs(pitch) < pitch_thr), "frente"
+    if action in ("derecha", "right"):
+        return yaw > yaw_thr, "giro_derecha" if yaw > yaw_thr else "insuficiente"
+    if action in ("izquierda", "left"):
+        return yaw < -yaw_thr, "giro_izquierda" if yaw < -yaw_thr else "insuficiente"
+    if action in ("arriba", "up"):
+        return pitch < -pitch_thr, "levantar_cabeza" if pitch < -pitch_thr else "insuficiente"
+    if action in ("abajo", "down"):
+        return pitch > pitch_thr, "bajar_cabeza" if pitch > pitch_thr else "insuficiente"
+    if action in ("sonreir", "sonreír", "smile"):
+        return smile_score >= smile_thr, "sonreir" if smile_score >= smile_thr else "insuficiente"
+    return False, "accion_no_reconocida"
+
+
 def alinear_rostro(
     img_bgr: np.ndarray,
     landmarks: Optional[dict] = None,
@@ -414,6 +484,7 @@ def robust_detect_and_encode(
     spoof_threshold: float = 0.5,
     preprocess_size: tuple[int, int] = (112, 112),
     quality_threshold: float = 0.0,
+    return_landmarks: bool = False,
 ) -> List[dict]:
     """Detecta caras, aplica anti-spoofing y devuelve embeddings enriquecidos.
 
@@ -442,12 +513,16 @@ def robust_detect_and_encode(
                 continue
             emb = generate_embedding(pre, lm)
             if emb:
+                pose = _pose_from_landmarks(rel_lm, (top, right, bottom, left))
                 results.append({
                     "bbox": (top, right, bottom, left),
                     "embedding": emb,
                     "live": live_ok,
                     "metrics": metrics,
                     "quality": quality,
+                    "landmarks": rel_lm if return_landmarks else None,
+                    "pose": pose,
+                    "smile_score": _smile_score_from_landmarks(rel_lm),
                 })
         return results
 
@@ -471,12 +546,16 @@ def robust_detect_and_encode(
         emb = generate_embedding(pre, None)
         if emb:
             top, right, bottom, left = y, x + w, y + h, x
+            pose = _pose_from_landmarks(None, (top, right, bottom, left))
             results.append({
                 "bbox": (top, right, bottom, left),
                 "embedding": emb,
                 "live": live_ok,
                 "metrics": metrics,
                 "quality": quality,
+                "landmarks": None,
+                "pose": pose,
+                "smile_score": 0.0,
             })
     return results
 
@@ -486,6 +565,68 @@ def detect_and_encode(image: np.ndarray) -> List[Tuple[Tuple[int, int, int, int]
 
     enriched = robust_detect_and_encode(image, live_check=False)
     return [(item["bbox"], item["embedding"]) for item in enriched]
+
+
+def analyze_scan_frame(
+    image: np.ndarray,
+    action: str,
+    *,
+    live_check: bool = True,
+    spoof_threshold: float = DEFAULT_SPOOF_THRESHOLD,
+    quality_threshold: float = DEFAULT_QUALITY_THRESHOLD,
+    yaw_threshold: float = 12.0,
+    pitch_threshold: float = 8.0,
+    smile_threshold: float = 1.7,
+) -> dict:
+    """Evalúa un frame para un paso guiado (giro, sonrisa, etc.)."""
+
+    detections = robust_detect_and_encode(
+        image,
+        live_check=live_check,
+        spoof_threshold=spoof_threshold,
+        quality_threshold=quality_threshold,
+        return_landmarks=True,
+    )
+
+    if not detections:
+        return {
+            "ok": False,
+            "reason": "no_face",
+            "message": "No se detectaron rostros válidos",
+            "count": 0,
+        }
+
+    ordered = sorted(detections, key=lambda d: d.get("quality", 0.0), reverse=True)
+    best = ordered[0]
+    pose = best.get("pose") or _pose_from_landmarks(best.get("landmarks"), best.get("bbox"))
+    smile_score = float(best.get("smile_score", 0.0))
+    ok, reason = _action_satisfied(action, pose, smile_score, yaw_thr=yaw_threshold, pitch_thr=pitch_threshold, smile_thr=smile_threshold)
+
+    payload = {
+        "ok": ok,
+        "reason": reason,
+        "pose": pose,
+        "smile_score": smile_score,
+        "quality": best.get("quality"),
+        "live": best.get("live", True),
+        "bbox": best.get("bbox"),
+        "metrics": best.get("metrics", {}),
+        "count": len(detections),
+    }
+
+    if ok:
+        payload["embedding"] = best.get("embedding")
+    else:
+        payload["message"] = "Movimiento insuficiente para el paso solicitado"
+    return payload
+
+
+def merge_scan_embeddings(embeddings: Sequence[Sequence[float]], mode: str = "median") -> Optional[List[float]]:
+    """Envuelve ``combinar_embeddings`` con defaults seguros para escaneo guiado."""
+
+    if not embeddings:
+        return None
+    return combinar_embeddings(embeddings, mode=mode, top_k=min(5, len(embeddings)))
 
 
 def parse_embedding(vector: str) -> Optional[List[float]]:
