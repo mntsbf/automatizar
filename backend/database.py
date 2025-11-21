@@ -27,7 +27,9 @@ def ensure_sqlite_schema(db):
         for name, ddl in columns.items():
             if name in existing:
                 continue
-            engine.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+            # SQLAlchemy 2.x removed engine.execute; use an explicit connection.
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
 
     # Align the persons table with new optional fields
     _ensure_columns(
