@@ -42,15 +42,18 @@ class Person(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     full_name = db.Column(db.String(120), nullable=False)
+    rut = db.Column(db.String(50), nullable=True)
     role = db.Column(db.String(120), nullable=True)
+    list_tag = db.Column(db.String(50), nullable=True)
     embeddings = db.relationship("Embedding", backref="person", cascade="all, delete-orphan")
+    photos = db.relationship("FacePhoto", backref="person", cascade="all, delete-orphan")
 
     @property
     def risk_level(self) -> str:
-        role_lower = (self.role or "").lower()
-        if "negra" in role_lower or "roja" in role_lower or "black" in role_lower:
+        tag = (self.list_tag or self.role or "").lower()
+        if "negra" in tag or "roja" in tag or "black" in tag:
             return "critical"
-        if "gris" in role_lower or "watch" in role_lower or "observ" in role_lower:
+        if "gris" in tag or "watch" in tag or "observ" in tag:
             return "warning"
         return "info"
 
@@ -58,9 +61,13 @@ class Person(db.Model):
         return {
             "id": self.id,
             "full_name": self.full_name,
+            "rut": self.rut,
             "role": self.role,
+            "list_tag": self.list_tag,
             "risk_level": self.risk_level,
             "embeddings": [e.to_dict() for e in self.embeddings],
+            "photos": [p.to_dict() for p in self.photos],
+            "photo_count": len(self.photos),
         }
 
 
@@ -74,6 +81,29 @@ class Embedding(db.Model):
 
     def to_dict(self) -> dict:
         return {"id": self.id, "vector": self.vector, "model": self.model}
+
+
+class FacePhoto(db.Model):
+    __tablename__ = "face_photos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    person_id = db.Column(db.Integer, db.ForeignKey("persons.id"), nullable=False)
+    file_path = db.Column(db.String(255), nullable=False)
+    embedding = db.Column(db.Text, nullable=False)
+    quality = db.Column(db.Float, nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    registered_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "person_id": self.person_id,
+            "file_path": self.file_path,
+            "embedding": self.embedding,
+            "quality": self.quality,
+            "metadata": self.metadata_json,
+            "registered_at": self.registered_at.isoformat(),
+        }
 
 
 class Alert(db.Model):

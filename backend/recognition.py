@@ -124,55 +124,119 @@ def encode_image_file(path: str) -> Optional[List[float]]:
 
 
 @dataclass
-class KnownEmbedding:
+class PersonEmbeddings:
+    """Agrupa todas las muestras de una persona para decidir con mayor precisión."""
+
     person_id: int
     person_name: str
-    vector: np.ndarray
+    list_tag: Optional[str]
+    vectors: np.ndarray
+    qualities: List[float]
 
 
-def build_bank(records: Iterable[Tuple[int, str, str]]) -> List[KnownEmbedding]:
-    """Construye un banco de embeddings a partir de filas (id, nombre, vector)."""
+def build_person_bank(records: Iterable[Tuple[int, str, str, Optional[str], Optional[float]]]) -> List[PersonEmbeddings]:
+    """Construye un banco por persona consolidando todas sus fotos/embeddings.
 
-    bank: List[KnownEmbedding] = []
-    for person_id, name, raw_vector in records:
+    Cada fila es (person_id, nombre, vector_raw, list_tag, quality).
+    """
+
+    grouped: dict[int, list[tuple[np.ndarray, float]]] = {}
+    names: dict[int, tuple[str, Optional[str]]] = {}
+    for person_id, name, raw_vector, tag, quality in records:
         parsed = parse_embedding(raw_vector)
-        if parsed:
-            bank.append(
-                KnownEmbedding(
-                    person_id=person_id, person_name=name, vector=_normalize(parsed)
-                )
-            )
+        if not parsed:
+            continue
+        vec = _normalize(parsed)
+        grouped.setdefault(person_id, []).append((vec, float(quality) if quality is not None else 1.0))
+        names[person_id] = (name, tag)
+
+    bank: list[PersonEmbeddings] = []
+    for pid, items in grouped.items():
+        vectors = np.stack([v for v, _ in items])
+        qualities = [q for _, q in items]
+        name, tag = names.get(pid, ("Desconocido", None))
+        bank.append(PersonEmbeddings(person_id=pid, person_name=name, list_tag=tag, vectors=vectors, qualities=qualities))
     return bank
 
 
-def best_match(
+def build_person_bank_from_persons(persons) -> List[PersonEmbeddings]:  # type: ignore[override]
+    """Conveniencia: recibe objetos ``Person`` cargados con relaciones.
+
+    Se combinan embeddings heredados (tabla ``embeddings``) y fotos nuevas
+    (tabla ``face_photos``), para mantener compatibilidad con bases existentes.
+    """
+
+    records: list[tuple[int, str, str, Optional[str], Optional[float]]] = []
+    for person in persons:
+        tag = getattr(person, "list_tag", None) or getattr(person, "role", None)
+        for photo in getattr(person, "photos", []) or []:
+            records.append((person.id, person.full_name, photo.embedding, tag, getattr(photo, "quality", None)))
+        for emb in getattr(person, "embeddings", []) or []:
+            records.append((person.id, person.full_name, emb.vector, tag, None))
+    return build_person_bank(records)
+
+
+def best_person_match(
     encoding: Sequence[float],
-    bank: Sequence[KnownEmbedding],
-    tolerance: float = 0.7,
-    margin: float = 0.1,
+    bank: Sequence[PersonEmbeddings],
+    threshold: float = 0.45,
+    margin: float = 0.05,
+    top_k: int = 3,
 ):
-    """Encuentra el match más cercano usando similitud de coseno normalizada.
+    """Busca el mejor candidato considerando **todas** las fotos por persona.
 
-    Requiere simultáneamente que la similitud supere ``tolerance`` **y** que sea
-    al menos ``margin`` mayor que la segunda mejor coincidencia, reduciendo falsos
-    positivos cuando varios rostros son parecidos.
+    Estrategia:
+    - Normaliza el embedding entrante.
+    - Para cada persona, calcula la distancia coseno (1 - similitud) contra todas sus muestras.
+    - Usa el mínimo de distancia como puntaje principal y el promedio de las ``top_k``
+      mejores como respaldo para diagnósticos.
+    - Acepta la coincidencia si ``min_dist <= threshold`` y mejora al segundo
+      candidato al menos por ``margin``.
 
-    Devuelve (match, similitud). Si no cumple las condiciones devuelve (None, None).
+    Devuelve (entry, similarity, diagnostics) o (None, None, None).
     """
 
     if not bank:
-        return None, None
+        return None, None, None
 
     sample = _normalize(encoding)
-    bank_matrix = np.stack([item.vector for item in bank])
-    similarities = bank_matrix @ sample  # producto punto con vectores normalizados
+    best: Optional[tuple[PersonEmbeddings, float, float]] = None
+    best_dist = float("inf")
+    second_dist = float("inf")
 
-    max_idx = int(np.argmax(similarities))
-    max_sim = float(similarities[max_idx])
+    for entry in bank:
+        sims = entry.vectors @ sample
+        distances = 1.0 - sims
+        min_dist = float(distances.min())
 
-    # Chequea ambigüedad: la mejor coincidencia debe destacar sobre la segunda
-    second_best = float(np.partition(similarities, -2)[-2]) if len(similarities) > 1 else -1.0
-    if max_sim < tolerance or (max_sim - second_best) < margin:
-        return None, None
+        top = np.sort(distances)[: top_k if top_k else len(distances)]
+        mean_top = float(top.mean()) if len(top) else min_dist
 
-    return bank[max_idx], max_sim
+        if min_dist < best_dist:
+            second_dist = best_dist
+            best_dist = min_dist
+            best = (entry, min_dist, mean_top)
+        elif min_dist < second_dist:
+            second_dist = min_dist
+
+    if best is None:
+        return None, None, None
+
+    entry, min_dist, mean_top = best
+    # Decide: distancia baja y diferencia clara contra el resto
+    if min_dist > threshold or (second_dist - min_dist) < margin:
+        return None, None, None
+
+    similarity = 1.0 - min_dist
+    diagnostics = {"min_distance": min_dist, "mean_top": mean_top, "second_best_distance": second_dist}
+    return entry, similarity, diagnostics
+
+
+# Mantener compatibilidad con el código previo: convierte el banco plano en uno agrupado
+def build_bank(records: Iterable[Tuple[int, str, str]]) -> List[PersonEmbeddings]:
+    return build_person_bank([(pid, name, vec, None, None) for pid, name, vec in records])
+
+
+def best_match(encoding: Sequence[float], bank: Sequence[PersonEmbeddings], tolerance: float = 0.7, margin: float = 0.1):
+    entry, similarity, _ = best_person_match(encoding, bank, threshold=1 - tolerance, margin=margin)
+    return entry, similarity

@@ -13,19 +13,22 @@ from typing import List
 
 import cv2
 
+from sqlalchemy.orm import joinedload
 from .app import create_app
 from .database import db
 from .models import Alert, Camera, Person, Site
-from .recognition import best_match, build_bank, detect_and_encode
+from .recognition import best_person_match, build_person_bank_from_persons, detect_and_encode
 
 
 def load_bank_from_db() -> List:
-    records = []
-    persons = Person.query.all()
-    for person in persons:
-        for emb in person.embeddings:
-            records.append((person.id, person.full_name, emb.vector))
-    return build_bank(records)
+    persons = (
+        Person.query.options(
+            joinedload(Person.photos),
+            joinedload(Person.embeddings),
+        )
+        .all()
+    )
+    return build_person_bank_from_persons(persons)
 
 
 def ensure_local_camera() -> int:
@@ -53,7 +56,10 @@ def ensure_local_camera() -> int:
 
 
 def run_camera(
-    camera_source: str | int, camera_id: int | None, tolerance: float = 0.7, margin: float = 0.1
+    camera_source: str | int,
+    camera_id: int | None,
+    threshold: float = 0.45,
+    margin: float = 0.05,
 ):
     app = create_app()
     with app.app_context():
@@ -75,8 +81,8 @@ def run_camera(
             detections = detect_and_encode(frame)
 
             for (top, right, bottom, left), encoding in detections:
-                match, similarity = best_match(
-                    encoding, bank, tolerance=tolerance, margin=margin
+                match, similarity, diagnostics = best_person_match(
+                    encoding, bank, threshold=threshold, margin=margin
                 )
                 label = "Desconocido"
                 color = (0, 0, 255)
@@ -124,15 +130,15 @@ def parse_args():
     parser.add_argument("--camera", default=0, help="Índice de webcam o URL RTSP")
     parser.add_argument("--camera-id", type=int, default=None, help="ID de cámara para registrar alertas")
     parser.add_argument(
-        "--tolerance",
+        "--threshold",
         type=float,
-        default=0.7,
-        help="Similitud mínima (0-1) para aceptar un match",
+        default=0.45,
+        help="Distancia coseno máxima permitida (menor = más estricto)",
     )
     parser.add_argument(
         "--margin",
         type=float,
-        default=0.1,
+        default=0.05,
         help="Diferencia mínima frente al segundo mejor candidato para evitar falsos positivos",
     )
     return parser.parse_args()
@@ -144,6 +150,6 @@ if __name__ == "__main__":
     run_camera(
         camera_source=source,
         camera_id=args.camera_id,
-        tolerance=args.tolerance,
+        threshold=args.threshold,
         margin=args.margin,
     )

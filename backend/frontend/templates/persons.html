@@ -18,9 +18,22 @@
             <input class="form-control" name="full_name" required />
           </div>
           <div class="mb-3">
+            <label class="form-label">RUT / Identificador</label>
+            <input class="form-control" name="rut" placeholder="11.111.111-1" />
+          </div>
+          <div class="mb-3">
             <label class="form-label">Rol / Lista</label>
             <input class="form-control" name="role" placeholder="Cliente, Lista negra, Lista gris" />
             <div class="form-text">Usa "lista negra" o "lista gris" para aplicar badges y alertas.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Etiqueta</label>
+            <select class="form-select" name="list_tag">
+              <option value="">Sin etiqueta</option>
+              <option value="lista blanca">Lista blanca</option>
+              <option value="lista gris">Lista gris</option>
+              <option value="lista negra">Lista negra</option>
+            </select>
           </div>
           <div class="mb-3">
             <label class="form-label">Embeddings (JSON opcional)</label>
@@ -31,7 +44,7 @@
         <hr />
         <form id="photo-form" enctype="multipart/form-data">
           <div class="mb-2">
-            <label class="form-label">Subir embedding desde foto</label>
+            <label class="form-label">Subir foto única y generar embedding</label>
             <select class="form-select" id="photo-person" name="person_id" required></select>
           </div>
           <div class="mb-3">
@@ -39,6 +52,19 @@
           </div>
           <button class="btn btn-success w-100" type="submit">Crear embedding</button>
           <div class="small text-muted mt-2" id="photo-status"></div>
+        </form>
+        <hr />
+        <form id="gallery-form" enctype="multipart/form-data">
+          <div class="mb-2">
+            <label class="form-label">Subir varias fotos por persona</label>
+            <select class="form-select" id="gallery-person" name="person_id" required></select>
+          </div>
+          <div class="mb-3">
+            <input class="form-control" type="file" name="images" accept="image/*" multiple required />
+            <div class="form-text">Distintos ángulos/iluminaciones mejoran la precisión.</div>
+          </div>
+          <button class="btn btn-outline-primary w-100" type="submit">Subir lote de fotos</button>
+          <div class="small text-muted mt-2" id="gallery-status"></div>
         </form>
       </div>
     </div>
@@ -58,8 +84,10 @@
             <tr>
               <th>Nombre</th>
               <th>Rol</th>
+              <th>RUT</th>
               <th>Riesgo</th>
               <th>Embeddings</th>
+              <th>Fotos</th>
             </tr>
           </thead>
           <tbody id="persons-table"></tbody>

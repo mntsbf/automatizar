@@ -4,6 +4,7 @@ import io
 import json
 import os
 import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Iterable, List
 
@@ -22,9 +23,17 @@ from flask import (
 )
 from flask_cors import CORS
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+from werkzeug.utils import secure_filename
 from .database import db
-from .models import Alert, Camera, Embedding, Person, Setting, Site
-from .recognition import best_match, build_bank, detect_and_encode, encode_image_array, parse_embedding
+from .models import Alert, Camera, Embedding, FacePhoto, Person, Setting, Site
+from .recognition import (
+    best_person_match,
+    build_person_bank_from_persons,
+    detect_and_encode,
+    encode_image_array,
+    parse_embedding,
+)
 
 
 def _risk_level(role: str | None) -> str:
@@ -52,6 +61,88 @@ def _ensure_default_settings():
     db.session.commit()
 
 
+_EMBEDDING_BANK_CACHE: dict[str, object] = {"bank": [], "version": 0}
+
+
+def _load_persons_with_embeddings() -> list[Person]:
+    return (
+        Person.query.options(
+            joinedload(Person.embeddings),
+            joinedload(Person.photos),
+        )
+        .all()
+    )
+
+
+def _rebuild_bank() -> list:
+    persons = _load_persons_with_embeddings()
+    bank = build_person_bank_from_persons(persons)
+    _EMBEDDING_BANK_CACHE["bank"] = bank
+    _EMBEDDING_BANK_CACHE["version"] = int(time.time())
+    return bank
+
+
+def _get_bank(force: bool = False):
+    if force or not _EMBEDDING_BANK_CACHE["bank"]:
+        return _rebuild_bank()
+    return _EMBEDDING_BANK_CACHE["bank"]
+
+
+def _faces_dir(app: Flask) -> str:
+    faces_path = os.path.join(app.static_folder, "faces")
+    os.makedirs(faces_path, exist_ok=True)
+    return faces_path
+
+
+def _save_face_photo(person: Person, storage, app: Flask, save_embedding_row: bool = False):
+    """Procesa un FileStorage, genera embedding y persiste el archivo + DB."""
+
+    filename = secure_filename(storage.filename or f"rostro_{uuid.uuid4().hex}.jpg")
+    name, ext = os.path.splitext(filename)
+    if not ext:
+        ext = ".jpg"
+
+    data = np.frombuffer(storage.read(), dtype=np.uint8)
+    bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if bgr is None:
+        return None, None, "No se pudo leer la imagen"
+
+    detections = detect_and_encode(bgr)
+    if not detections:
+        return None, None, "No se detectaron rostros en la imagen"
+
+    (top, right, bottom, left), embedding = detections[0]
+    h, w = bgr.shape[:2]
+    face_area = (bottom - top) * (right - left)
+    quality = min(1.0, (face_area / float(w * h)) * 4.0)
+    metadata = {
+        "box": [int(top), int(right), int(bottom), int(left)],
+        "frame_size": [w, h],
+        "source": storage.filename,
+    }
+
+    unique_name = f"{person.id}_{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(_faces_dir(app), unique_name)
+    cv2.imwrite(file_path, bgr)
+    rel_path = os.path.relpath(file_path, app.static_folder)
+
+    photo = FacePhoto(
+        person=person,
+        file_path=rel_path,
+        embedding=json.dumps(embedding),
+        quality=quality,
+        metadata_json=json.dumps(metadata),
+    )
+    db.session.add(photo)
+
+    emb_row = None
+    if save_embedding_row:
+        emb_row = Embedding(vector=json.dumps(embedding), model="face_recognition", person=person)
+        db.session.add(emb_row)
+
+    return photo, emb_row, None
+
+
 def create_app(testing: bool = False) -> Flask:
     app = Flask(__name__, template_folder="frontend/templates", static_folder="frontend/static")
     base_dir = os.path.abspath(os.path.dirname(__file__))
@@ -74,6 +165,7 @@ def create_app(testing: bool = False) -> Flask:
     with app.app_context():
         db.create_all()
         _ensure_default_settings()
+        _rebuild_bank()
 
     @app.route("/")
     def index():
@@ -140,7 +232,12 @@ def create_app(testing: bool = False) -> Flask:
     @app.post("/api/persons")
     def create_person():
         payload = request.get_json() or {}
-        person = Person(full_name=payload.get("full_name", "Desconocido"), role=payload.get("role"))
+        person = Person(
+            full_name=payload.get("full_name", "Desconocido"),
+            role=payload.get("role"),
+            rut=payload.get("rut"),
+            list_tag=payload.get("list_tag"),
+        )
         db.session.add(person)
         db.session.commit()
         embeddings: List[str] = payload.get("embeddings", [])
@@ -150,6 +247,7 @@ def create_app(testing: bool = False) -> Flask:
                 emb = Embedding(vector=json.dumps(parsed), model=payload.get("model", "ArcFace"), person=person)
                 db.session.add(emb)
         db.session.commit()
+        _rebuild_bank()
         return jsonify(person.to_dict()), 201
 
     @app.post("/api/persons/<int:person_id>/embedding")
@@ -159,21 +257,35 @@ def create_app(testing: bool = False) -> Flask:
             return {"error": "Debes enviar un archivo 'image'"}, 400
 
         image_file = request.files["image"]
-        data = np.frombuffer(image_file.read(), dtype=np.uint8)
-        bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
-        if bgr is None:
-            return {"error": "No se pudo leer la imagen"}, 400
+        photo, emb_row, error = _save_face_photo(person, image_file, app, save_embedding_row=True)
+        if error:
+            return {"error": error}, 400
 
-        embedding = encode_image_array(bgr)
-        if embedding is None:
-            return {
-                "error": "No se detectaron rostros en la imagen o falta un backend de reconocimiento (usa face_recognition o el modo liviano con OpenCV)"
-            }, 400
-
-        emb = Embedding(vector=json.dumps(embedding), model="face_recognition", person=person)
-        db.session.add(emb)
         db.session.commit()
+        _rebuild_bank()
         return person.to_dict(), 201
+
+    @app.post("/api/persons/<int:person_id>/photos")
+    def upload_person_photos(person_id: int):
+        person = Person.query.get_or_404(person_id)
+        files = request.files.getlist("images") or request.files.getlist("photos")
+        if not files:
+            return {"error": "Incluye archivos en 'images' o 'photos'"}, 400
+
+        created: list[dict] = []
+        errors: list[dict] = []
+        for storage in files:
+            photo, _, error = _save_face_photo(person, storage, app, save_embedding_row=False)
+            if error:
+                errors.append({"filename": storage.filename, "error": error})
+                continue
+            created.append(photo.to_dict())
+
+        if created:
+            db.session.commit()
+            _rebuild_bank()
+        status = 201 if created else 400
+        return {"created": len(created), "photos": created, "errors": errors}, status
 
     @app.post("/api/recognize")
     def recognize_from_image():
@@ -185,21 +297,16 @@ def create_app(testing: bool = False) -> Flask:
         bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
         if bgr is None:
             return {"error": "No se pudo leer la imagen"}, 400
-        tolerance = float(request.form.get("tolerance", 0.7))
-        margin = float(request.form.get("margin", 0.1))
+        threshold = float(request.form.get("threshold", request.form.get("distance_threshold", 0.45)))
+        margin = float(request.form.get("margin", 0.05))
 
         detections = detect_and_encode(bgr)
 
-        records = []
-        persons = Person.query.all()
-        for person in persons:
-            for emb in person.embeddings:
-                records.append((person.id, person.full_name, emb.vector))
-        bank = build_bank(records)
+        bank = _get_bank()
 
         results = []
         for (top, right, bottom, left), encoding in detections:
-            match, similarity = best_match(encoding, bank, tolerance=tolerance, margin=margin)
+            match, similarity, diagnostics = best_person_match(encoding, bank, threshold=threshold, margin=margin)
             if match and similarity is not None:
                 camera_id = request.form.get("camera_id")
                 camera_ref = int(camera_id) if camera_id else None
@@ -211,11 +318,24 @@ def create_app(testing: bool = False) -> Flask:
                 )
                 db.session.add(alert)
                 db.session.commit()
-                results.append({"person": match.person_name, "similarity": similarity, "person_id": match.person_id})
+                results.append(
+                    {
+                        "person": match.person_name,
+                        "person_id": match.person_id,
+                        "similarity": similarity,
+                        "diagnostics": diagnostics,
+                    }
+                )
             else:
                 results.append({"person": None, "similarity": 0.0, "person_id": None})
 
         return {"count": len(results), "matches": results}
+
+    @app.post("/api/embeddings/refresh")
+    def refresh_embeddings():
+        bank = _rebuild_bank()
+        total = int(sum(entry.vectors.shape[0] for entry in bank)) if bank else 0
+        return {"persons": len(bank), "embeddings": total, "version": _EMBEDDING_BANK_CACHE["version"]}
 
     # --- Dashboard data ---
     @app.get("/api/dashboard/estadisticas")
@@ -227,14 +347,14 @@ def create_app(testing: bool = False) -> Flask:
         alerts_today_q = Alert.query.filter(Alert.created_at >= today_start)
         alerts_today = alerts_today_q.count()
 
-        role_expr = func.lower(func.coalesce(Person.role, ""))
+        role_expr = func.lower(func.coalesce(Person.list_tag, Person.role, ""))
         critical_alerts = (
             alerts_today_q.join(Person, Alert.person_id == Person.id, isouter=True)
-            .filter(
-                role_expr.contains("negra")
-                | role_expr.contains("roja")
-                | role_expr.contains("black")
-            )
+              .filter(
+                  role_expr.contains("negra")
+                  | role_expr.contains("roja")
+                  | role_expr.contains("black")
+              )
             .count()
         )
 
@@ -292,7 +412,7 @@ def create_app(testing: bool = False) -> Flask:
         serialized = []
         for alert in alerts:
             person_name = alert.person.full_name if alert.person else None
-            role = alert.person.role if alert.person else None
+            role = alert.person.list_tag or alert.person.role if alert.person else None
             level = _risk_level(role)
             serialized.append(
                 {
@@ -341,10 +461,11 @@ def create_app(testing: bool = False) -> Flask:
         if risk:
             risk = risk.lower()
             query = query.join(Person, Alert.person_id == Person.id, isouter=True)
+            tag_expr = func.lower(func.coalesce(Person.list_tag, Person.role, ""))
             if risk == "critical":
-                query = query.filter(func.lower(Person.role).contains("negra") | func.lower(Person.role).contains("roja"))
+                query = query.filter(tag_expr.contains("negra") | tag_expr.contains("roja"))
             elif risk == "warning":
-                query = query.filter(func.lower(Person.role).contains("gris") | func.lower(Person.role).contains("watch"))
+                query = query.filter(tag_expr.contains("gris") | tag_expr.contains("watch"))
 
         alerts = query.limit(limit).all()
         return jsonify([a.to_dict() for a in alerts])

@@ -55,15 +55,15 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 - Asegúrate de haber instalado los **Build Tools con C++** (Windows) o `build-essential` (Linux).
 
 ### 3) Probar reconocimiento en local
-1. Registra personas desde el panel y sube una foto en la sección **Embeddings desde foto** para generar el embedding automáticamente.
+1. Registra personas desde el panel y sube una foto en la sección **Embeddings desde foto** para generar el embedding automáticamente (o usa el formulario de **galería** para múltiples fotos por persona).
 2. Ejecuta el agente local para abrir la webcam o un RTSP y generar alertas sobre tu base:
 
    ```bash
-   python -m backend.agent --camera 0 --camera-id 1 --tolerance 0.7 --margin 0.1
+   python -m backend.agent --camera 0 --camera-id 1 --threshold 0.45 --margin 0.05
    ```
 
    Pulsa **q** para cerrar la ventana o **r** para recargar el banco de embeddings sin reiniciar.
-3. Ajusta `--tolerance` (similitud mínima de coseno ya normalizada): valores altos → más precisión y menos falsos positivos; valores bajos → más recall. Usa también `--margin` (diferencia mínima sobre el segundo mejor candidato) para filtrar casos ambiguos.
+3. Ajusta `--threshold` (distancia coseno máxima aceptada; menor = más estricto) y `--margin` (diferencia mínima con el segundo mejor) para balancear precisión/recall.
 
 ### Cómo mejorar la precisión
 - **Usa el modo completo (`face_recognition`/dlib)**: instala `pip install -r requirements-ml.txt` tras preparar CMake + compilador para embeddings más sólidos.
@@ -72,17 +72,25 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 - **Recarga el banco**: botón "Actualizar" en el panel o `r` en la ventana del agente para usar nuevos embeddings al instante.
 - **Calidad de cámara**: mayor resolución (720p+) y buena iluminación reducen ruido en detección y comparación.
 
+### Embeddings múltiples por persona
+- **Modelo de datos**: una persona puede tener múltiples fotos (`face_photos`) con su embedding y metadata (calidad, bounding box). Se almacena en `static/faces/` con nombre único.
+- **Carga masiva**: usa el formulario "Subir varias fotos por persona" o el endpoint `POST /api/persons/<id>/photos` (campo `images`). Cada imagen valida que haya rostro, genera embedding y guarda calidad para filtrar ruido.
+- **Decisión de match**: se calcula la distancia coseno del rostro entrante contra **todas** las fotos de cada persona y se toma el mínimo. Se acepta si `distancia <= threshold` y mejora al segundo candidato al menos por `margin`.
+- **Refresco del banco**: tras agregar fotos puedes llamar `POST /api/embeddings/refresh` o pulsar **Actualizar**/`r` para recalcular el banco en memoria.
+
 ## Endpoints principales
 - `GET /api/health` — estado del servidor.
 - `GET/POST /api/sites` — registrar y listar ubicaciones.
 - `GET/POST /api/cameras` — agregar cámaras asociadas a un sitio.
-- `GET/POST /api/persons` — registrar personas y embeddings en texto.
-- `POST /api/persons/<id>/embedding` — subir foto y crear embedding con `face_recognition`.
+- `GET/POST /api/persons` — registrar personas (nombre, rut, lista) y embeddings en texto.
+- `POST /api/persons/<id>/embedding` — subir foto y crear embedding (guarda archivo y vector).
+- `POST /api/persons/<id>/photos` — subir varias fotos (campo `images`) y generar embeddings por foto.
 - `POST /api/recognize` — enviar imagen y devolver coincidencias (genera alerta si coincide).
 - `GET/POST /api/alerts` — recibir y consultar alertas.
 - `GET /api/dashboard/estadisticas` — métricas para tarjetas y gráfico (alertas hoy, críticas, cámaras activas, serie de tiempo y top sedes).
 - `GET /api/dashboard/ultimas-alertas` — tabla con últimos eventos (sede, cámara, persona y nivel de riesgo).
 - `GET /api/dashboard/tiempo-real` — SSE sencillo para refrescar el dashboard cuando llegan nuevas alertas.
+- `POST /api/embeddings/refresh` — recalcula el banco en memoria tras agregar fotos/embeddings.
 
 Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 
@@ -103,11 +111,13 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 ### API rápida
 - `GET/POST /api/sites` — registrar y listar ubicaciones.
 - `GET/POST /api/cameras` — agregar cámaras asociadas a un sitio.
-- `GET/POST /api/persons` — registrar personas y embeddings en texto.
-- `POST /api/persons/<id>/embedding` — subir foto y crear embedding con `face_recognition` o modo liviano.
+- `GET/POST /api/persons` — registrar personas y embeddings en texto (nombre, rut, lista).
+- `POST /api/persons/<id>/embedding` — subir foto y crear embedding con `face_recognition` o modo liviano (se guarda la foto).
+- `POST /api/persons/<id>/photos` — subir varias fotos (campo `images`) y generar embeddings por foto.
 - `POST /api/recognize` — enviar imagen y devolver coincidencias (genera alerta si coincide).
 - `GET/POST /api/alerts` — recibir y consultar alertas (filtros por persona, sitio y riesgo con query params).
 - `GET /api/dashboard/estadisticas` — métricas para tarjetas y gráfico (alertas hoy, críticas, cámaras activas, serie de tiempo y top sedes).
 - `GET /api/dashboard/ultimas-alertas` — tabla con últimos eventos (sede, cámara, persona y nivel de riesgo).
 - `GET /api/dashboard/tiempo-real` — SSE sencillo para refrescar el dashboard cuando llegan nuevas alertas.
+- `POST /api/embeddings/refresh` — recalcula el banco en memoria tras agregar fotos/embeddings.
 - `GET/PUT /api/settings` — tolerancia, margen, tema y live refresh para el dashboard.
