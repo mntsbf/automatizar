@@ -206,6 +206,7 @@ function renderResult(payload) {
 }
 
 function describeReason(reason) {
+  if (reason?.startsWith('lenient')) return 'Movimiento aceptado en modo tolerante';
   switch (reason) {
     case 'no_face':
       return 'No se detectaron rostros válidos';
@@ -213,8 +214,6 @@ function describeReason(reason) {
       return 'No se pudo estimar el giro (acércate o mejora la luz)';
     case 'accion_no_reconocida':
       return 'Acción no reconocida';
-    case 'lenient':
-      return 'Movimiento aceptado en modo tolerante';
     case 'spoof':
       return 'Liveness falló, intenta de nuevo';
     default:
@@ -256,7 +255,7 @@ async function handleFrame(step) {
       previews.push(payload.embedding);
       addPreview(shot.dataUrl, step, payload.quality || 0);
       currentStep += 1;
-      setStatus('Paso validado', 'success');
+      setStatus(payload.message || 'Paso validado', 'success');
       renderSteps();
       if (currentStep >= steps.length) {
         await finalizeScan();

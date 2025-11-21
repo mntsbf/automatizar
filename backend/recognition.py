@@ -209,8 +209,9 @@ def _action_satisfied(
     smile_thr=1.7,
     pose_confidence: float = 1.0,
     quality: float | None = None,
-    quality_min: float = 0.55,
+    quality_min: float = 0.5,
     allow_lenient: bool = False,
+    near_ratio: float = 0.6,
 ) -> tuple[bool, str]:
     """Evalúa si el movimiento solicitado se cumplió.
 
@@ -222,29 +223,61 @@ def _action_satisfied(
     pitch = pose.get("pitch", 0.0)
     roll = pose.get("roll", 0.0)
 
-    if pose_confidence < 0.25:
+    near_yaw = yaw_thr * near_ratio
+    near_pitch = pitch_thr * near_ratio
+    near_smile = smile_thr * near_ratio
+
+    if pose_confidence < 0.2:
         # Con pocos landmarks no es fiable distinguir giros. Si la calidad es
         # suficiente, permitimos progresar salvo en la sonrisa.
         if action in ("frente", "center"):
             return True, "frente"
-        if allow_lenient and quality is not None and quality >= max(quality_min, 0.55):
+        if allow_lenient and quality is not None and quality >= max(quality_min, 0.5):
             if action in ("sonreir", "sonreír", "smile"):
                 return False, "sin_landmarks"
-            return True, "lenient"
+            return True, "lenient_bbox"
         return False, "sin_landmarks"
 
+    def _near_pass(metric: float, thr: float) -> bool:
+        return allow_lenient and metric >= thr and (quality is None or quality >= quality_min)
+
     if action in ("frente", "center"):
-        return (abs(yaw) < yaw_thr and abs(pitch) < pitch_thr), "frente"
+        ok = abs(yaw) < yaw_thr and abs(pitch) < pitch_thr
+        if ok:
+            return True, "frente"
+        if _near_pass(abs(yaw), near_yaw) and _near_pass(abs(pitch), near_pitch):
+            return True, "lenient_frente"
+        return False, "insuficiente"
     if action in ("derecha", "right"):
-        return yaw > yaw_thr, "giro_derecha" if yaw > yaw_thr else "insuficiente"
+        if yaw > yaw_thr:
+            return True, "giro_derecha"
+        if _near_pass(yaw, near_yaw):
+            return True, "lenient_derecha"
+        return False, "insuficiente"
     if action in ("izquierda", "left"):
-        return yaw < -yaw_thr, "giro_izquierda" if yaw < -yaw_thr else "insuficiente"
+        if yaw < -yaw_thr:
+            return True, "giro_izquierda"
+        if _near_pass(-yaw, near_yaw):
+            return True, "lenient_izquierda"
+        return False, "insuficiente"
     if action in ("arriba", "up"):
-        return pitch < -pitch_thr, "levantar_cabeza" if pitch < -pitch_thr else "insuficiente"
+        if pitch < -pitch_thr:
+            return True, "levantar_cabeza"
+        if _near_pass(-pitch, near_pitch):
+            return True, "lenient_arriba"
+        return False, "insuficiente"
     if action in ("abajo", "down"):
-        return pitch > pitch_thr, "bajar_cabeza" if pitch > pitch_thr else "insuficiente"
+        if pitch > pitch_thr:
+            return True, "bajar_cabeza"
+        if _near_pass(pitch, near_pitch):
+            return True, "lenient_abajo"
+        return False, "insuficiente"
     if action in ("sonreir", "sonreír", "smile"):
-        return smile_score >= smile_thr, "sonreir" if smile_score >= smile_thr else "insuficiente"
+        if smile_score >= smile_thr:
+            return True, "sonreir"
+        if _near_pass(smile_score, near_smile):
+            return True, "lenient_sonreir"
+        return False, "insuficiente"
     return False, "accion_no_reconocida"
 
 
@@ -601,9 +634,9 @@ def analyze_scan_frame(
     live_check: bool = True,
     spoof_threshold: float = DEFAULT_SPOOF_THRESHOLD,
     quality_threshold: float = DEFAULT_QUALITY_THRESHOLD,
-    yaw_threshold: float = 10.0,
-    pitch_threshold: float = 6.0,
-    smile_threshold: float = 1.5,
+    yaw_threshold: float = 8.0,
+    pitch_threshold: float = 5.0,
+    smile_threshold: float = 1.2,
 ) -> dict:
     """Evalúa un frame para un paso guiado (giro, sonrisa, etc.)."""
 
@@ -648,6 +681,13 @@ def analyze_scan_frame(
         allow_lenient=True,
     )
 
+    if ok and reason.startswith("lenient"):
+        message = "Paso validado en modo tolerante (movimiento leve)"
+    elif ok:
+        message = "Paso validado"
+    else:
+        message = "Movimiento insuficiente para el paso solicitado"
+
     payload = {
         "ok": ok,
         "reason": reason,
@@ -659,12 +699,11 @@ def analyze_scan_frame(
         "bbox": best.get("bbox"),
         "metrics": best.get("metrics", {}),
         "count": len(detections),
+        "message": message,
     }
 
     if ok:
         payload["embedding"] = best.get("embedding")
-    else:
-        payload["message"] = "Movimiento insuficiente para el paso solicitado"
     return payload
 
 
