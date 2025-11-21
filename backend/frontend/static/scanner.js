@@ -11,6 +11,9 @@ let currentStep = 0;
 let embeddings = [];
 let previews = [];
 let stream = null;
+let liveLoop = false;
+let busy = false;
+const LIVE_INTERVAL = 900; // ms between live evaluations
 
 const video = document.getElementById('scan-video');
 const overlay = document.getElementById('scan-overlay');
@@ -27,6 +30,7 @@ const personSelect = document.getElementById('scan-person');
 const saveCheck = document.getElementById('scan-save');
 const liveCheck = document.getElementById('scan-live');
 const refreshCheck = document.getElementById('scan-refresh');
+const autoCheck = document.getElementById('scan-auto');
 
 function setStatus(text, color = 'secondary') {
   statusBadge.textContent = text;
@@ -93,6 +97,7 @@ async function startCamera() {
     overlay.hidden = true;
     captureBtn.disabled = false;
     setStatus('En vivo', 'success');
+    if (autoCheck?.checked) startLiveLoop();
   } catch (err) {
     console.error('camera error', err);
     setStatus('Sin cámara', 'danger');
@@ -108,6 +113,11 @@ function stopCamera() {
   overlay.hidden = false;
   captureBtn.disabled = true;
   setStatus('Cámara detenida', 'secondary');
+  stopLiveLoop();
+}
+
+function stopLiveLoop() {
+  liveLoop = false;
 }
 
 function snapshot() {
@@ -136,22 +146,20 @@ function renderResult(payload) {
   `;
 }
 
-async function captureStep() {
-  if (!stream) {
-    setStatus('Sin cámara', 'danger');
-    return;
+function describeReason(reason) {
+  switch (reason) {
+    case 'no_face':
+      return 'No se detectaron rostros válidos';
+    case 'accion_no_reconocida':
+      return 'Acción no reconocida';
+    case 'spoof':
+      return 'Liveness falló, intenta de nuevo';
+    default:
+      return 'Movimiento insuficiente para el paso';
   }
-  const step = steps[currentStep];
-  if (!step) return;
-  setStatus('Procesando...', 'warning');
-  captureBtn.disabled = true;
-  const shot = await snapshot();
-  if (!shot.blob) {
-    setStatus('Sin frame', 'danger');
-    captureBtn.disabled = false;
-    return;
-  }
+}
 
+async function sendFrame(step, shot) {
   const formData = new FormData();
   formData.append('image', shot.blob, `${step.id}.jpg`);
   formData.append('action', step.id);
@@ -161,9 +169,25 @@ async function captureStep() {
   const personId = personSelect?.value;
   if (personId) formData.append('person_id', personId);
 
+  const resp = await fetch('/api/scan/frame', { method: 'POST', body: formData });
+  const payload = await resp.json();
+  return { ok: resp.ok, payload };
+}
+
+async function handleFrame(step) {
+  if (!stream || busy) return;
+  busy = true;
+  setStatus('Procesando...', 'warning');
+
+  const shot = await snapshot();
+  if (!shot.blob) {
+    setStatus('Sin frame', 'danger');
+    busy = false;
+    return;
+  }
+
   try {
-    const resp = await fetch('/api/scan/frame', { method: 'POST', body: formData });
-    const payload = await resp.json();
+    const { ok, payload } = await sendFrame(step, shot);
     if (payload.ok) {
       embeddings.push(payload.embedding);
       previews.push(payload.embedding);
@@ -175,14 +199,40 @@ async function captureStep() {
         await finalizeScan();
       }
     } else {
-      setStatus(payload.message || 'Movimiento insuficiente', 'danger');
+      const reason = payload.reason || (ok ? 'sin_match' : 'error');
+      const color = reason === 'no_face' ? 'warning' : 'danger';
+      setStatus(payload.message || describeReason(reason), color);
     }
   } catch (err) {
     console.error('scan frame failed', err);
     setStatus('Error de red', 'danger');
   } finally {
-    captureBtn.disabled = false;
+    busy = false;
   }
+}
+
+function startLiveLoop() {
+  if (liveLoop) return;
+  liveLoop = true;
+  const loop = async () => {
+    if (!liveLoop || currentStep >= steps.length) return;
+    const step = steps[currentStep];
+    if (step) await handleFrame(step);
+    setTimeout(loop, LIVE_INTERVAL);
+  };
+  loop();
+}
+
+async function captureStep() {
+  if (!stream) {
+    setStatus('Sin cámara', 'danger');
+    return;
+  }
+  const step = steps[currentStep];
+  if (!step) return;
+  captureBtn.disabled = true;
+  await handleFrame(step);
+  captureBtn.disabled = false;
 }
 
 async function finalizeScan() {
@@ -191,6 +241,7 @@ async function finalizeScan() {
     return;
   }
   setStatus('Combinando...', 'primary');
+  stopLiveLoop();
   try {
     const resp = await fetch('/api/scan/finalize', {
       method: 'POST',
@@ -211,6 +262,8 @@ async function finalizeScan() {
 }
 
 function resetFlow() {
+  stopLiveLoop();
+  busy = false;
   embeddings = [];
   previews = [];
   currentStep = 0;
@@ -223,6 +276,11 @@ function resetFlow() {
 if (startBtn) startBtn.addEventListener('click', startCamera);
 if (captureBtn) captureBtn.addEventListener('click', captureStep);
 if (resetBtn) resetBtn.addEventListener('click', resetFlow);
+if (autoCheck)
+  autoCheck.addEventListener('change', () => {
+    if (autoCheck.checked && stream) startLiveLoop();
+    else stopLiveLoop();
+  });
 
 renderSteps();
 loadPersons();

@@ -164,6 +164,8 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 ### Escáner vivo con movimientos
 
 - Vista `/scan`: abre la cámara, guía al usuario (frente, derecha, izquierda, arriba, abajo, sonreír) y captura frames de buena calidad.
+  Ahora soporta modo automático en vivo: evalúa el movimiento en tiempo real y avanza al siguiente paso sin que el operador presione
+  "Capturar" en cada giro.
 - `POST /api/scan/frame` espera `image` + `action` (frente|derecha|izquierda|arriba|abajo|sonreir), aplica anti-spoofing, verifica el movimiento con pose/landmarks y devuelve `embedding`, `pose`, `quality` y `bbox` si es válido.
 - `POST /api/scan/finalize` combina los embeddings (`mode=median` por defecto) y puede persistir el vector en la persona (`person_id`).
 - Usa los mismos umbrales de tolerancia/calidad que el resto del pipeline y permite guardar cada frame en la galería (`save_photo=true`).
