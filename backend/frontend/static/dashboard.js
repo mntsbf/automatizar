@@ -15,6 +15,7 @@ function riskBadge(level, text) {
 
 let chartInstance = null;
 let eventSource = null;
+let livePreferred = true;
 
 function renderChart(labels, values) {
   const ctx = document.getElementById('alertsChart');
@@ -125,10 +126,23 @@ function toggleLive() {
   }
 }
 
+async function loadLivePreference() {
+  try {
+    const settings = await fetchJSON('/api/settings');
+    livePreferred = String(settings.live_refresh || '').toLowerCase() !== 'false';
+  } catch (e) {
+    livePreferred = true;
+  }
+  if (livePreferred) {
+    toggleLive();
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   loadStats();
   loadAlerts();
   document.getElementById('refresh-stats').addEventListener('click', loadStats);
   document.getElementById('refresh-alerts').addEventListener('click', loadAlerts);
   document.getElementById('live-toggle').addEventListener('click', toggleLive);
+  loadLivePreference();
 });

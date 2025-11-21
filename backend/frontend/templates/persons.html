@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block title %}Personas | FaceHub{% endblock %}
+{% block header_title %}Personas y listas{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Registrar persona</span>
+        <span class="badge bg-dark-subtle text-dark" id="person-total">0 registradas</span>
+      </div>
+      <div class="card-body">
+        <form id="person-form" class="needs-validation" novalidate>
+          <div class="mb-3">
+            <label class="form-label">Nombre completo</label>
+            <input class="form-control" name="full_name" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Rol / Lista</label>
+            <input class="form-control" name="role" placeholder="Cliente, Lista negra, Lista gris" />
+            <div class="form-text">Usa "lista negra" o "lista gris" para aplicar badges y alertas.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Embeddings (JSON opcional)</label>
+            <textarea class="form-control" name="embeddings" rows="2" placeholder="[[0.1, ...], [0.2, ...]]"></textarea>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">Guardar persona</button>
+        </form>
+        <hr />
+        <form id="photo-form" enctype="multipart/form-data">
+          <div class="mb-2">
+            <label class="form-label">Subir embedding desde foto</label>
+            <select class="form-select" id="photo-person" name="person_id" required></select>
+          </div>
+          <div class="mb-3">
+            <input class="form-control" type="file" name="image" accept="image/*" required />
+          </div>
+          <button class="btn btn-success w-100" type="submit">Crear embedding</button>
+          <div class="small text-muted mt-2" id="photo-status"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-0">Personas registradas</h6>
+          <small class="text-muted">Listas y embeddings</small>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" id="persons-refresh"><i class="bi bi-arrow-clockwise me-1"></i>Actualizar</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Nombre</th>
+              <th>Rol</th>
+              <th>Riesgo</th>
+              <th>Embeddings</th>
+            </tr>
+          </thead>
+          <tbody id="persons-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='persons.js') }}"></script>
+{% endblock %}

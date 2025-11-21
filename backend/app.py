@@ -5,16 +5,25 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Iterable
+from typing import Iterable, List
 
 import cv2
 import numpy as np
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    stream_with_context,
+    url_for,
+)
 from flask_cors import CORS
 from sqlalchemy import func
 from .database import db
-from .models import Alert, Camera, Embedding, Person, Site
+from .models import Alert, Camera, Embedding, Person, Setting, Site
 from .recognition import best_match, build_bank, detect_and_encode, encode_image_array, parse_embedding
 
 
@@ -27,6 +36,20 @@ def _risk_level(role: str | None) -> str:
     if "gris" in lower or "watch" in lower or "observ" in lower:
         return "warning"
     return "info"
+
+
+def _ensure_default_settings():
+    defaults = {
+        "tolerance": "0.72",
+        "margin": "0.15",
+        "live_refresh": "true",
+        "theme": "dark",
+    }
+    for key, value in defaults.items():
+        setting = Setting.query.get(key)
+        if not setting:
+            db.session.add(Setting(key=key, value=value))
+    db.session.commit()
 
 
 def create_app(testing: bool = False) -> Flask:
@@ -50,10 +73,31 @@ def create_app(testing: bool = False) -> Flask:
 
     with app.app_context():
         db.create_all()
+        _ensure_default_settings()
 
     @app.route("/")
     def index():
+        return redirect(url_for("dashboard"))
+
+    @app.route("/dashboard")
+    def dashboard():
         return render_template("dashboard.html", user_name="Administrador", user_role="Admin")
+
+    @app.route("/alertas")
+    def alertas_view():
+        return render_template("alerts.html", user_name="Operador", user_role="Seguridad")
+
+    @app.route("/camaras")
+    def camaras_view():
+        return render_template("cameras.html", user_name="Administrador", user_role="Admin")
+
+    @app.route("/personas")
+    def personas_view():
+        return render_template("persons.html", user_name="Administrador", user_role="Admin")
+
+    @app.route("/config")
+    def config_view():
+        return render_template("config.html", user_name="Administrador", user_role="Admin")
 
     # --- Sites ---
     @app.get("/api/sites")
@@ -284,7 +328,25 @@ def create_app(testing: bool = False) -> Flask:
     # --- Alerts ---
     @app.get("/api/alerts")
     def list_alerts():
-        alerts = Alert.query.order_by(Alert.created_at.desc()).limit(50).all()
+        risk = request.args.get("risk")
+        site_id = request.args.get("site_id", type=int)
+        person_id = request.args.get("person_id", type=int)
+        limit = request.args.get("limit", type=int, default=100)
+
+        query = Alert.query.order_by(Alert.created_at.desc())
+        if person_id:
+            query = query.filter(Alert.person_id == person_id)
+        if site_id:
+            query = query.join(Camera, Alert.camera_id == Camera.id).filter(Camera.site_id == site_id)
+        if risk:
+            risk = risk.lower()
+            query = query.join(Person, Alert.person_id == Person.id, isouter=True)
+            if risk == "critical":
+                query = query.filter(func.lower(Person.role).contains("negra") | func.lower(Person.role).contains("roja"))
+            elif risk == "warning":
+                query = query.filter(func.lower(Person.role).contains("gris") | func.lower(Person.role).contains("watch"))
+
+        alerts = query.limit(limit).all()
         return jsonify([a.to_dict() for a in alerts])
 
     @app.post("/api/alerts")
@@ -299,6 +361,27 @@ def create_app(testing: bool = False) -> Flask:
         db.session.add(alert)
         db.session.commit()
         return jsonify(alert.to_dict()), 201
+
+    # --- Settings ---
+    @app.get("/api/settings")
+    def get_settings():
+        settings = {s.key: s.value for s in Setting.query.all()}
+        return settings
+
+    @app.put("/api/settings")
+    def update_settings():
+        payload = request.get_json() or {}
+        updated = {}
+        for key, value in payload.items():
+            setting = Setting.query.get(key)
+            if not setting:
+                setting = Setting(key=key, value=str(value))
+                db.session.add(setting)
+            else:
+                setting.value = str(value)
+            updated[key] = setting.value
+        db.session.commit()
+        return {"updated": updated}
 
     # --- Healthcheck for remote agents ---
     @app.get("/api/health")

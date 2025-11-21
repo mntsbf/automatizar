@@ -98,3 +98,13 @@ class Alert(db.Model):
             "camera": self.camera.to_dict() if self.camera else None,
             "message": self.message,
         }
+
+
+class Setting(db.Model):
+    __tablename__ = "settings"
+
+    key = db.Column(db.String(120), primary_key=True)
+    value = db.Column(db.String(512), nullable=False)
+
+    def to_dict(self) -> dict:
+        return {"key": self.key, "value": self.value}

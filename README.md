@@ -89,5 +89,25 @@ Puedes usar el panel incluido para poblar la base y ver las alertas en vivo.
 ## Estructura de templates y estáticos
 - `backend/frontend/templates/base.html`: layout con sidebar, topbar y bloques Jinja2.
 - `backend/frontend/templates/dashboard.html`: tablero principal con tarjetas, gráfico de Chart.js y tabla de alertas.
+- `backend/frontend/templates/alerts.html`: módulo de alertas con filtros por riesgo/sede/persona y live toggle.
+- `backend/frontend/templates/cameras.html`: alta y listado de cámaras por sede.
+- `backend/frontend/templates/persons.html`: gestión de personas, roles/listas y subida de embedding por foto.
+- `backend/frontend/templates/config.html`: ajustes de tolerancia, margen, tema y refresco en vivo.
 - `backend/frontend/static/dashboard.js`: lógica de Fetch + SSE para actualizar tarjetas, gráfica y tabla.
+- `backend/frontend/static/alerts.js`: filtros y tabla dinámica de alertas.
+- `backend/frontend/static/cameras.js`: creación de cámaras y contadores de actividad 24h.
+- `backend/frontend/static/persons.js`: alta de personas y embeddings.
+- `backend/frontend/static/config.js`: sincroniza y guarda parámetros globales.
 - `backend/frontend/static/styles.css`: estilos de dashboard (tiles, sidebar, badges de riesgo).
+
+### API rápida
+- `GET/POST /api/sites` — registrar y listar ubicaciones.
+- `GET/POST /api/cameras` — agregar cámaras asociadas a un sitio.
+- `GET/POST /api/persons` — registrar personas y embeddings en texto.
+- `POST /api/persons/<id>/embedding` — subir foto y crear embedding con `face_recognition` o modo liviano.
+- `POST /api/recognize` — enviar imagen y devolver coincidencias (genera alerta si coincide).
+- `GET/POST /api/alerts` — recibir y consultar alertas (filtros por persona, sitio y riesgo con query params).
+- `GET /api/dashboard/estadisticas` — métricas para tarjetas y gráfico (alertas hoy, críticas, cámaras activas, serie de tiempo y top sedes).
+- `GET /api/dashboard/ultimas-alertas` — tabla con últimos eventos (sede, cámara, persona y nivel de riesgo).
+- `GET /api/dashboard/tiempo-real` — SSE sencillo para refrescar el dashboard cuando llegan nuevas alertas.
+- `GET/PUT /api/settings` — tolerancia, margen, tema y live refresh para el dashboard.

@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block title %}Alertas | FaceHub{% endblock %}
+{% block header_title %}Alertas y eventos{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-12 col-xl-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Filtros</span>
+        <button class="btn btn-sm btn-outline-secondary" id="alerts-reset">Limpiar</button>
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Nivel de riesgo</label>
+          <select class="form-select" id="filter-risk">
+            <option value="">Todos</option>
+            <option value="critical">Críticas (lista negra)</option>
+            <option value="warning">Vigilancia (gris)</option>
+            <option value="info">Normal</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Sede</label>
+          <select class="form-select" id="filter-site"></select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Persona</label>
+          <select class="form-select" id="filter-person"></select>
+        </div>
+        <div class="d-grid gap-2">
+          <button class="btn btn-primary" id="alerts-refresh"><i class="bi bi-arrow-clockwise me-1"></i>Actualizar</button>
+          <button class="btn btn-outline-primary" id="alerts-live"><i class="bi bi-broadcast-pin me-1"></i>Live</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-9">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-0">Últimas alertas</h6>
+          <small class="text-muted">Detalle de los últimos eventos detectados</small>
+        </div>
+        <span class="badge bg-dark-subtle text-dark" id="alerts-count">0 eventos</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Fecha/Hora</th>
+              <th>Sede</th>
+              <th>Cámara</th>
+              <th>Persona</th>
+              <th>Riesgo</th>
+              <th>Similitud</th>
+              <th>Mensaje</th>
+            </tr>
+          </thead>
+          <tbody id="alerts-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='alerts.js') }}"></script>
+{% endblock %}

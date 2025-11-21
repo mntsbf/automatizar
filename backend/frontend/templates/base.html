@@ -16,29 +16,30 @@
         <span class="fs-4 fw-bold">FaceHub</span>
         <span class="badge bg-success">Central</span>
       </div>
+      {% set current = request.path %}
       <ul class="nav flex-column">
         <li class="nav-item">
-          <a class="nav-link text-white active" href="#">
+          <a class="nav-link {{ 'active' if current.startswith('/dashboard') else 'text-white-50' }}" href="{{ url_for('dashboard') }}">
             <i class="bi bi-speedometer2 me-2"></i>Inicio
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white-50" href="#alertas">
+          <a class="nav-link {{ 'active' if current.startswith('/alertas') else 'text-white-50' }}" href="{{ url_for('alertas_view') }}">
             <i class="bi bi-bell-fill me-2 text-danger"></i>Alertas
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white-50" href="#camaras">
+          <a class="nav-link {{ 'active' if current.startswith('/camaras') else 'text-white-50' }}" href="{{ url_for('camaras_view') }}">
             <i class="bi bi-camera-video-fill me-2"></i>Cámaras
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white-50" href="#personas">
+          <a class="nav-link {{ 'active' if current.startswith('/personas') else 'text-white-50' }}" href="{{ url_for('personas_view') }}">
             <i class="bi bi-people-fill me-2"></i>Personas
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white-50" href="#config">
+          <a class="nav-link {{ 'active' if current.startswith('/config') else 'text-white-50' }}" href="{{ url_for('config_view') }}">
             <i class="bi bi-gear-fill me-2"></i>Configuración
           </a>
         </li>
