@@ -28,8 +28,10 @@ def ensure_sqlite_schema(db):
             if name in existing:
                 continue
             # SQLAlchemy 2.x removed engine.execute; use an explicit connection.
+            # Include the column name in the DDL to avoid invalid statements such as
+            # "ADD COLUMN VARCHAR(50)" when upgrading legacy databases.
             with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
     # Align the persons table with new optional fields
     _ensure_columns(
