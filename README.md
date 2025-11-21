@@ -12,6 +12,7 @@ Aplicación Flask + SQLite lista para probar localmente un flujo simplificado de
 - Hay dos modos de reconocimiento:
   - **Modo completo (dlib/face_recognition)**: mayor precisión, requiere compilar `dlib` (Build Tools + CMake).
   - **Modo liviano (OpenCV Haar)**: ya viene con `requirements.txt`, no necesita compilar nada. Usa cascadas Haar + vectores normalizados (precisión básica para pruebas locales).
+- Modo avanzado opcional: **ArcFace/InsightFace** y anti-spoof con ONNX (CPU). Instala `insightface` + `onnxruntime` con `pip install -r requirements-ml.txt`. Si incluyes un modelo tipo SilentFace en `backend/models/silentface.onnx` se usará automáticamente para liveness.
 - Para habilitar el modo completo (`face_recognition`/`dlib`), instala herramientas de compilación y CMake:
   - Windows (guía rápida):
     1. Instala [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) eligiendo **Desktop development with C++** (incluye MSVC y el SDK de Windows).
@@ -59,11 +60,11 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 2. Ejecuta el agente local para abrir la webcam o un RTSP y generar alertas sobre tu base:
 
    ```bash
-   python -m backend.agent --camera 0 --camera-id 1 --threshold 0.45 --margin 0.05
+   python -m backend.agent --camera 0 --camera-id 1 --threshold 0.38 --margin 0.08 --spoof-threshold 0.5
    ```
 
    Pulsa **q** para cerrar la ventana o **r** para recargar el banco de embeddings sin reiniciar.
-3. Ajusta `--threshold` (distancia coseno máxima aceptada; menor = más estricto) y `--margin` (diferencia mínima con el segundo mejor) para balancear precisión/recall.
+3. Ajusta `--threshold` (distancia coseno máxima aceptada; menor = más estricto), `--margin` (diferencia mínima con el segundo mejor) y `--spoof-threshold` (score mínimo de anti-spoof) para balancear precisión/recall.
 
 ### Cómo mejorar la precisión
 - **Usa el modo completo (`face_recognition`/dlib)**: instala `pip install -r requirements-ml.txt` tras preparar CMake + compilador para embeddings más sólidos.
@@ -77,6 +78,15 @@ Si al instalar ves el error "CMake is not installed on your system" o fallos al 
 - **Carga masiva**: usa el formulario "Subir varias fotos por persona" o el endpoint `POST /api/persons/<id>/photos` (campo `images`). Cada imagen valida que haya rostro, genera embedding y guarda calidad para filtrar ruido.
 - **Decisión de match**: se calcula la distancia coseno del rostro entrante contra **todas** las fotos de cada persona y se toma el mínimo. Se acepta si `distancia <= threshold` y mejora al segundo candidato al menos por `margin`.
 - **Refresco del banco**: tras agregar fotos puedes llamar `POST /api/embeddings/refresh` o pulsar **Actualizar**/`r` para recalcular el banco en memoria.
+- **ArcFace + normalización**: si instalas `insightface`, el pipeline usa ArcFace (buffalo_l) con alineamiento de ojos, resize a 112x112 y CLAHE para mejorar contraste; métricas con distancia coseno + margen reducen falsos positivos.
+- **Anti-spoofing**: si detectas fotos/pantallas, sube `backend/models/silentface.onnx` o usa el score heurístico; define `spoof_threshold` (0.5-0.7 recomendado) en el agente o en `POST /api/recognize`.
+
+### Pipeline robusto: anti-spoof + normalización + dataset incremental
+- **Anti-spoofing**: `is_live_face` usa modelo ONNX si está disponible y, si no, heurísticas de textura/saturación. Solo genera embedding si `live` supera el umbral.
+- **Preprocesamiento**: `preprocess_face` alinea los ojos, corrige iluminación con CLAHE y normaliza a 112x112 antes de ArcFace/face_recognition.
+- **Embeddings modernos**: `generate_embedding` elige ArcFace (InsightFace) si está instalado; si no, recurre a face_recognition o OpenCV ligero.
+- **Matching**: `recognize_faces` compara contra todas las fotos de cada persona con distancia coseno (umbral por defecto 0.38, margen 0.08, top_k=5) y descarta empates.
+- **Dataset incremental**: si una coincidencia es confiable (`similarity >= incremental_threshold`, p.ej. 0.85) se puede llamar `save_incremental_sample` para guardar automáticamente el recorte y su embedding. Se activa con `--no-incremental` para deshabilitar en el agente o `save_incremental=true` en `/api/recognize`.
 
 ## Endpoints principales
 - `GET /api/health` — estado del servidor.

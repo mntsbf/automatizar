@@ -28,11 +28,13 @@ from werkzeug.utils import secure_filename
 from .database import db
 from .models import Alert, Camera, Embedding, FacePhoto, Person, Setting, Site
 from .recognition import (
-    best_person_match,
     build_person_bank_from_persons,
     detect_and_encode,
     encode_image_array,
     parse_embedding,
+    robust_detect_and_encode,
+    recognize_faces,
+    save_incremental_sample,
 )
 
 
@@ -49,16 +51,24 @@ def _risk_level(role: str | None) -> str:
 
 def _ensure_default_settings():
     defaults = {
-        "tolerance": "0.72",
-        "margin": "0.15",
+        "tolerance": "0.38",
+        "margin": "0.08",
         "live_refresh": "true",
         "theme": "dark",
+        "spoof_threshold": "0.5",
+        "incremental_threshold": "0.87",
+        "top_k": "5",
     }
     for key, value in defaults.items():
         setting = Setting.query.get(key)
         if not setting:
             db.session.add(Setting(key=key, value=value))
     db.session.commit()
+
+
+def _get_setting_value(key: str, default: str) -> str:
+    setting = Setting.query.get(key)
+    return setting.value if setting else default
 
 
 _EMBEDDING_BANK_CACHE: dict[str, object] = {"bank": [], "version": 0}
@@ -107,14 +117,17 @@ def _save_face_photo(person: Person, storage, app: Flask, save_embedding_row: bo
     if bgr is None:
         return None, None, "No se pudo leer la imagen"
 
-    detections = detect_and_encode(bgr)
+    spoof_threshold = float(_get_setting_value("spoof_threshold", "0.5"))
+    detections = robust_detect_and_encode(bgr, live_check=True, spoof_threshold=spoof_threshold)
     if not detections:
-        return None, None, "No se detectaron rostros en la imagen"
+        return None, None, "No se detectaron rostros válidos (anti-spoofing)"
 
-    (top, right, bottom, left), embedding = detections[0]
+    det0 = detections[0]
+    (top, right, bottom, left) = det0["bbox"]
+    embedding = det0["embedding"]
     h, w = bgr.shape[:2]
     face_area = (bottom - top) * (right - left)
-    quality = min(1.0, (face_area / float(w * h)) * 4.0)
+    quality = min(1.0, (face_area / float(w * h)) * 4.0) * det0.get("metrics", {}).get("score", 1.0)
     metadata = {
         "box": [int(top), int(right), int(bottom), int(left)],
         "frame_size": [w, h],
@@ -297,19 +310,52 @@ def create_app(testing: bool = False) -> Flask:
         bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
         if bgr is None:
             return {"error": "No se pudo leer la imagen"}, 400
-        threshold = float(request.form.get("threshold", request.form.get("distance_threshold", 0.45)))
-        margin = float(request.form.get("margin", 0.05))
-
-        detections = detect_and_encode(bgr)
+        threshold = float(
+            request.form.get(
+                "threshold",
+                request.form.get(
+                    "distance_threshold",
+                    _get_setting_value("tolerance", "0.38"),
+                ),
+            )
+        )
+        margin = float(request.form.get("margin", _get_setting_value("margin", "0.08")))
+        spoof_threshold = float(
+            request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5"))
+        )
+        incremental_threshold = float(
+            request.form.get(
+                "incremental_threshold",
+                _get_setting_value("incremental_threshold", "0.87"),
+            )
+        )
+        top_k = int(request.form.get("top_k", _get_setting_value("top_k", "5")))
+        live_check = request.form.get("live_check", "true").lower() == "true"
+        save_incremental = request.form.get("save_incremental", "false").lower() == "true"
 
         bank = _get_bank()
+        matches = recognize_faces(
+            bgr,
+            bank,
+            threshold=threshold,
+            margin=margin,
+            top_k=top_k,
+            live_check=live_check,
+            spoof_threshold=spoof_threshold,
+        )
 
         results = []
-        for (top, right, bottom, left), encoding in detections:
-            match, similarity, diagnostics = best_person_match(encoding, bank, threshold=threshold, margin=margin)
+        saved_any = False
+        camera_id = request.form.get("camera_id")
+        camera_ref = int(camera_id) if camera_id else None
+
+        for det in matches:
+            top, right, bottom, left = det["bbox"]
+            match = det.get("match")
+            similarity = det.get("similarity") or 0.0
+            live_ok = det.get("live", True)
+
             if match and similarity is not None:
-                camera_id = request.form.get("camera_id")
-                camera_ref = int(camera_id) if camera_id else None
                 alert = Alert(
                     similarity=similarity,
                     person_id=match.person_id,
@@ -317,18 +363,35 @@ def create_app(testing: bool = False) -> Flask:
                     message=request.form.get("message", "Alerta desde imagen"),
                 )
                 db.session.add(alert)
-                db.session.commit()
+
+                if save_incremental and similarity >= incremental_threshold and live_ok:
+                    face_crop = bgr[top:bottom, left:right]
+                    photo = save_incremental_sample(
+                        match.person_id,
+                        face_crop,
+                        det.get("embedding", []),
+                        app.static_folder,
+                        quality=det.get("metrics", {}).get("score", 1.0),
+                        note="api-auto",
+                    )
+                    saved_any = saved_any or bool(photo)
+
                 results.append(
                     {
                         "person": match.person_name,
                         "person_id": match.person_id,
                         "similarity": similarity,
-                        "diagnostics": diagnostics,
+                        "diagnostics": det.get("diagnostics"),
+                        "live": live_ok,
+                        "spoof_score": det.get("metrics", {}).get("score"),
                     }
                 )
             else:
-                results.append({"person": None, "similarity": 0.0, "person_id": None})
+                results.append({"person": None, "similarity": similarity, "person_id": None, "live": live_ok})
 
+        db.session.commit()
+        if saved_any:
+            _rebuild_bank()
         return {"count": len(results), "matches": results}
 
     @app.post("/api/embeddings/refresh")

@@ -17,7 +17,7 @@ from sqlalchemy.orm import joinedload
 from .app import create_app
 from .database import db
 from .models import Alert, Camera, Person, Site
-from .recognition import best_person_match, build_person_bank_from_persons, detect_and_encode
+from .recognition import build_person_bank_from_persons, recognize_faces, save_incremental_sample
 
 
 def load_bank_from_db() -> List:
@@ -58,8 +58,12 @@ def ensure_local_camera() -> int:
 def run_camera(
     camera_source: str | int,
     camera_id: int | None,
-    threshold: float = 0.45,
-    margin: float = 0.05,
+    threshold: float = 0.38,
+    margin: float = 0.08,
+    spoof_threshold: float = 0.5,
+    incremental_threshold: float = 0.85,
+    enable_incremental: bool = True,
+    top_k: int = 5,
 ):
     app = create_app()
     with app.app_context():
@@ -78,13 +82,21 @@ def run_camera(
                 print("No se pudo leer frame, saliendo...")
                 break
 
-            detections = detect_and_encode(frame)
+            detections = recognize_faces(
+                frame,
+                bank,
+                threshold=threshold,
+                margin=margin,
+                top_k=top_k,
+                live_check=True,
+                spoof_threshold=spoof_threshold,
+            )
 
-            for (top, right, bottom, left), encoding in detections:
-                match, similarity, diagnostics = best_person_match(
-                    encoding, bank, threshold=threshold, margin=margin
-                )
-                label = "Desconocido"
+            for det in detections:
+                (top, right, bottom, left) = det["bbox"]
+                match = det["match"]
+                similarity = det.get("similarity") or 0.0
+                label = "Spoof" if not det.get("live", True) else "Desconocido"
                 color = (0, 0, 255)
 
                 if match and similarity is not None:
@@ -100,6 +112,17 @@ def run_camera(
                     )
                     db.session.add(alert)
                     db.session.commit()
+
+                    if enable_incremental and similarity >= incremental_threshold:
+                        face_crop = frame[top:bottom, left:right]
+                        save_incremental_sample(
+                            match.person_id,
+                            face_crop,
+                            det.get("embedding", []),
+                            app.static_folder,
+                            quality=det.get("metrics", {}).get("score", 1.0),
+                            note="agent-auto",
+                        )
 
                 cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
                 cv2.putText(
@@ -132,14 +155,31 @@ def parse_args():
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.45,
+        default=0.38,
         help="Distancia coseno máxima permitida (menor = más estricto)",
     )
     parser.add_argument(
         "--margin",
         type=float,
-        default=0.05,
+        default=0.08,
         help="Diferencia mínima frente al segundo mejor candidato para evitar falsos positivos",
+    )
+    parser.add_argument(
+        "--spoof-threshold",
+        type=float,
+        default=0.5,
+        help="Umbral mínimo de score anti-spoof (0-1).",
+    )
+    parser.add_argument(
+        "--incremental-threshold",
+        type=float,
+        default=0.85,
+        help="A partir de qué similitud guardar muestras incrementales",
+    )
+    parser.add_argument(
+        "--no-incremental",
+        action="store_true",
+        help="Desactiva el guardado automático de nuevas fotos",
     )
     return parser.parse_args()
 
@@ -152,4 +192,7 @@ if __name__ == "__main__":
         camera_id=args.camera_id,
         threshold=args.threshold,
         margin=args.margin,
+        spoof_threshold=args.spoof_threshold,
+        incremental_threshold=args.incremental_threshold,
+        enable_incremental=not args.no_incremental,
     )
