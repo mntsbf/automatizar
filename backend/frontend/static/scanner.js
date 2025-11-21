@@ -118,17 +118,34 @@ async function loadDevices() {
   }
 }
 
+function getUserMedia(constraints) {
+  if (navigator.mediaDevices?.getUserMedia) return navigator.mediaDevices.getUserMedia(constraints);
+  const legacy =
+    navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+  if (legacy) return new Promise((resolve, reject) => legacy.call(navigator, constraints, resolve, reject));
+  return null;
+}
+
 async function startCamera() {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus('Este navegador no soporta cámara', 'danger');
+  if (!window.isSecureContext && location.hostname !== 'localhost') {
+    setStatus(cameraHints.insecure, 'danger');
+    overlay.hidden = false;
+    if (overlayText) overlayText.textContent = cameraHints.insecure;
+    return;
+  }
+
+  const gum = getUserMedia({ video: true, audio: false });
+  if (!gum || typeof gum.then !== 'function') {
+    setStatus('Este navegador no soporta cámara (getUserMedia)', 'danger');
     overlay.hidden = false;
     if (overlayText) overlayText.textContent = cameraHints.notfound;
     return;
   }
+
   try {
     const constraints = { video: { facingMode: 'user' }, audio: false };
     if (deviceSelect?.value) constraints.video = { deviceId: { exact: deviceSelect.value } };
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    stream = await getUserMedia(constraints);
     video.srcObject = stream;
     overlay.hidden = true;
     captureBtn.disabled = false;
