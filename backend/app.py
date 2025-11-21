@@ -5,7 +5,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, List
 
 import cv2
@@ -308,7 +308,7 @@ def _save_face_photo(
         embedding=json.dumps(embedding),
         quality=quality,
         metadata_json=json.dumps(metadata),
-        registered_at=datetime.utcnow(),
+        registered_at=datetime.now(timezone.utc),
     )
     db.session.add(photo)
 
@@ -355,7 +355,7 @@ def _save_scan_photo(
         embedding=json.dumps(embedding),
         quality=quality or 0.8,
         metadata_json=json.dumps(metadata),
-        registered_at=datetime.utcnow(),
+        registered_at=datetime.now(timezone.utc),
     )
     db.session.add(photo)
     app.logger.info(
@@ -378,11 +378,27 @@ def create_app(testing: bool = False) -> Flask:
 
     default_db = f"sqlite:///{default_db_path}"
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", default_db)
+    if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite://"):
+        engine_opts = app.config.setdefault("SQLALCHEMY_ENGINE_OPTIONS", {})
+        connect_args = engine_opts.setdefault("connect_args", {})
+        connect_args.setdefault("check_same_thread", False)
+        connect_args.setdefault("timeout", 30)
+        engine_opts.setdefault("pool_pre_ping", True)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["JSON_SORT_KEYS"] = False
 
     CORS(app)
     db.init_app(app)
+
+    if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite://"):
+        from sqlalchemy import event
+
+        @event.listens_for(db.engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):  # pragma: no cover - engine hook
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL;")
+            cursor.execute("PRAGMA busy_timeout=3000;")
+            cursor.close()
 
     with app.app_context():
         db.create_all()
@@ -858,7 +874,7 @@ def create_app(testing: bool = False) -> Flask:
     # --- Dashboard data ---
     @app.get("/api/dashboard/estadisticas")
     def dashboard_stats():
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = datetime(now.year, now.month, now.day)
         week_start = today_start - timedelta(days=6)
 
@@ -1025,7 +1041,7 @@ def create_app(testing: bool = False) -> Flask:
     # --- Healthcheck for remote agents ---
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+        return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
     return app
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from .database import db
@@ -92,7 +92,7 @@ class FacePhoto(db.Model):
     embedding = db.Column(db.Text, nullable=False)
     quality = db.Column(db.Float, nullable=True)
     metadata_json = db.Column(db.Text, nullable=True)
-    registered_at = db.Column(db.DateTime, default=datetime.utcnow)
+    registered_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict:
         return {
@@ -110,7 +110,7 @@ class Alert(db.Model):
     __tablename__ = "alerts"
 
     id = db.Column(db.Integer, primary_key=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     similarity = db.Column(db.Float, nullable=False)
     person_id = db.Column(db.Integer, db.ForeignKey("persons.id"), nullable=True)
     camera_id = db.Column(db.Integer, db.ForeignKey("cameras.id"), nullable=False)

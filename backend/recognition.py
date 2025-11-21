@@ -660,13 +660,14 @@ def analyze_scan_frame(
     ordered = sorted(detections, key=lambda d: d.get("quality", 0.0), reverse=True)
     best = ordered[0]
 
-    # En modo simple solo exigimos calidad mínima y bounding box centrado; no pedimos giros/sonrisa.
+    # En modo simple sólo pedimos un rostro razonable; si la calidad es aceptable aprobamos.
     if simple_mode:
-        if best.get("quality", 0.0) < quality_threshold:
+        min_simple_quality = max(0.3, quality_threshold * 0.75)
+        if best.get("quality", 0.0) < min_simple_quality:
             return {
                 "ok": False,
                 "reason": "baja_calidad",
-                "message": "Acércate al marco azul o mejora la luz (modo simple)",
+                "message": "Alinea tu rostro en el marco azul y acércate un poco más (modo simple)",
                 "quality": best.get("quality"),
                 "bbox": best.get("bbox"),
                 "pose": best.get("pose"),
@@ -706,6 +707,13 @@ def analyze_scan_frame(
         quality=best.get("quality"),
         allow_lenient=True,
     )
+
+    # Permitir aprobaciones tolerantes si hay rostro estable aunque el movimiento sea leve.
+    if not ok:
+        quality = best.get("quality", 0.0)
+        if quality >= max(0.28, quality_threshold * 0.7) and pose_confidence >= 0.2:
+            ok = True
+            reason = "lenient_quality"
 
     if ok and reason.startswith("lenient"):
         message = "Paso validado en modo tolerante (movimiento leve)"

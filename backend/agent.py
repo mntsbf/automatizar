@@ -8,11 +8,13 @@ coincidencias bajo el umbral configurado.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from typing import List
 
 import cv2
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload
 from .app import create_app
 from .database import db
@@ -53,6 +55,21 @@ def ensure_local_camera() -> int:
         db.session.commit()
 
     return camera.id
+
+
+def _commit_with_retry(attempts: int = 5, delay: float = 0.3) -> None:
+    """Commit resilient to transient SQLite locks."""
+
+    for idx in range(attempts):
+        try:
+            db.session.commit()
+            return
+        except OperationalError as exc:  # pragma: no cover - runtime safeguard
+            db.session.rollback()
+            if "database is locked" not in str(exc).lower():
+                raise
+            time.sleep(delay * (idx + 1))
+    raise RuntimeError("No se pudo escribir en la base tras varios reintentos (locked)")
 
 
 def run_camera(
@@ -108,10 +125,10 @@ def run_camera(
                         person_id=match.person_id,
                         camera_id=resolved_camera_id,
                         message="Match detectado por agente local",
-                        created_at=datetime.utcnow(),
+                        created_at=datetime.now(timezone.utc),
                     )
                     db.session.add(alert)
-                    db.session.commit()
+                    _commit_with_retry()
 
                     if enable_incremental and similarity >= incremental_threshold:
                         face_crop = frame[top:bottom, left:right]
