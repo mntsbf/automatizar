@@ -14,6 +14,7 @@ import numpy as np
 from flask import (
     Flask,
     Response,
+    current_app,
     jsonify,
     redirect,
     render_template,
@@ -131,6 +132,14 @@ def _rebuild_bank() -> list:
     bank = build_person_bank_from_persons(persons)
     _EMBEDDING_BANK_CACHE["bank"] = bank
     _EMBEDDING_BANK_CACHE["version"] = int(time.time())
+    total = int(sum(entry.vectors.shape[0] for entry in bank)) if bank else 0
+    try:
+        current_app.logger.info(
+            "Banco de embeddings reconstruido",
+            extra={"persons": len(bank), "embeddings": total, "version": _EMBEDDING_BANK_CACHE["version"]},
+        )
+    except Exception:
+        pass
     return bank
 
 
@@ -144,6 +153,62 @@ def _faces_dir(app: Flask) -> str:
     faces_path = os.path.join(app.static_folder, "faces")
     os.makedirs(faces_path, exist_ok=True)
     return faces_path
+
+
+def _lookup_embedding(
+    embedding: list[float],
+    *,
+    threshold: float | None = None,
+    margin: float | None = None,
+    top_k: int | None = None,
+    force_bank: bool = False,
+    bank_override=None,
+):
+    """Busca una coincidencia contra el banco actual y agrega trazas de depuración."""
+
+    bank = bank_override if bank_override is not None else _get_bank(force=force_bank)
+    info = {
+        "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
+        "bank_size": len(bank),
+    }
+    if not bank:
+        current_app.logger.warning("Banco vacío al buscar persona", extra=info)
+        return None, None, None, info
+
+    thr = threshold if threshold is not None else _default_match_threshold()
+    mar = margin if margin is not None else _default_margin()
+    k = top_k if top_k is not None else int(_get_setting_value("top_k", "5"))
+
+    entry, similarity, diagnostics = best_person_match(embedding, bank, threshold=thr, margin=mar, top_k=k)
+    fallback_sim = None
+
+    if entry and similarity is not None:
+        current_app.logger.info(
+            "Match encontrado",
+            extra={
+                "person_id": entry.person_id,
+                "person_name": entry.person_name,
+                "similarity": round(float(similarity), 4),
+                "distance": round(float(1.0 - similarity), 4),
+                "bank_size": len(bank),
+                "threshold": thr,
+                "margin": mar,
+            },
+        )
+        return entry, similarity, diagnostics, info
+
+    # No se aceptó match: buscamos la mejor similitud para reportar
+    _, fallback_sim, _ = best_person_match(embedding, bank, threshold=1.0, margin=0.0, top_k=k)
+    current_app.logger.info(
+        "Sin match bajo umbral",
+        extra={
+            "best_similarity": float(fallback_sim or 0.0),
+            "threshold": thr,
+            "margin": mar,
+            "bank_size": len(bank),
+        },
+    )
+    return None, fallback_sim, diagnostics, info
 
 
 def _save_face_photo(
@@ -177,6 +242,10 @@ def _save_face_photo(
         spoof_threshold=spoof_threshold,
     )
     if not detections:
+        app.logger.warning(
+            "Carga de foto sin rostros válidos",
+            extra={"person_id": person.id, "filename": storage.filename, "live_check": live_check},
+        )
         return None, None, "No se detectaron rostros válidos (anti-spoofing)"
 
     det0 = detections[0]
@@ -211,6 +280,16 @@ def _save_face_photo(
         emb_row = Embedding(vector=json.dumps(embedding), model="face_recognition", person=person)
         db.session.add(emb_row)
 
+    app.logger.info(
+        "Foto de rostro guardada",
+        extra={
+            "person_id": person.id,
+            "filename": storage.filename,
+            "path": rel_path,
+            "quality": round(float(quality), 4),
+            "bbox": [int(top), int(right), int(bottom), int(left)],
+        },
+    )
     return photo, emb_row, None
 
 
@@ -424,36 +503,43 @@ def create_app(testing: bool = False) -> Flask:
             spoof_threshold=spoof_threshold,
         )
 
+        current_app.logger.info(
+            "Detecciones en buscar-persona",
+            extra={"count": len(detections), "threshold": threshold, "margin": margin, "bank_size": len(bank)},
+        )
+
         if not detections:
             return {"resultado": "sin_rostro", "mensaje": "No se detectaron rostros válidos"}, 400
 
         best_payload: dict | None = None
         fallback_similarity = None
         for det in detections:
-            entry, similarity, diagnostics = best_person_match(
-                det["embedding"], bank, threshold=threshold, margin=margin, top_k=top_k
+            entry, sim_or_fallback, diagnostics, info = _lookup_embedding(
+                det["embedding"],
+                threshold=threshold,
+                margin=margin,
+                top_k=top_k,
+                bank_override=bank,
             )
-            if entry and similarity is not None:
-                if not best_payload or similarity > best_payload["similarity"]:
+            if entry and sim_or_fallback is not None:
+                if not best_payload or sim_or_fallback > best_payload["similarity"]:
                     best_payload = {
                         "entry": entry,
-                        "similarity": similarity,
+                        "similarity": sim_or_fallback,
                         "diagnostics": diagnostics,
                         "bbox": det.get("bbox"),
                         "live": det.get("live", True),
+                        "bank_info": info,
                     }
                 continue
 
-            # Si no hay match, calcula el mejor candidato para reporte (sin umbral)
-            _, fallback_sim, _ = best_person_match(
-                det["embedding"], bank, threshold=1.0, margin=0.0, top_k=top_k
-            )
-            if fallback_sim is not None:
-                fallback_similarity = max(fallback_similarity or 0.0, fallback_sim)
+            if sim_or_fallback is not None:
+                fallback_similarity = max(fallback_similarity or 0.0, sim_or_fallback)
 
         if best_payload:
             entry = best_payload["entry"]
             similarity = best_payload["similarity"]
+            bank_info = best_payload.get("bank_info", {})
             return {
                 "resultado": "match",
                 "persona": {
@@ -466,8 +552,8 @@ def create_app(testing: bool = False) -> Flask:
                 "diagnosticos": best_payload.get("diagnostics"),
                 "bbox": best_payload.get("bbox"),
                 "live": best_payload.get("live", True),
-                "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
-                "bank_size": len(bank),
+                "bank_version": bank_info.get("bank_version", _EMBEDDING_BANK_CACHE.get("version")),
+                "bank_size": bank_info.get("bank_size", len(bank)),
             }
 
         return {
@@ -504,8 +590,28 @@ def create_app(testing: bool = False) -> Flask:
         top_k = int(request.form.get("top_k", _get_setting_value("top_k", "5")))
         live_check = request.form.get("live_check", "true").lower() == "true"
         save_incremental = request.form.get("save_incremental", "false").lower() == "true"
+        force_bank = request.form.get("refresh_bank", "true").lower() == "true"
 
-        bank = _get_bank()
+        bank = _get_bank(force=force_bank)
+        if not bank:
+            return {
+                "count": 0,
+                "matches": [],
+                "resultado": "sin_embeddings",
+                "mensaje": "No hay embeddings en el banco",
+                "bank_size": 0,
+            }, 404
+
+        current_app.logger.info(
+            "Reconocer desde imagen",
+            extra={
+                "bank_size": len(bank),
+                "threshold": threshold,
+                "margin": margin,
+                "live_check": live_check,
+            },
+        )
+
         matches = recognize_faces(
             bgr,
             bank,
@@ -559,12 +665,25 @@ def create_app(testing: bool = False) -> Flask:
                     }
                 )
             else:
-                results.append({"person": None, "similarity": similarity, "person_id": None, "live": live_ok})
+                results.append(
+                    {
+                        "person": None,
+                        "similarity": similarity,
+                        "person_id": None,
+                        "live": live_ok,
+                        "message": "Sin coincidencia bajo umbral",
+                    }
+                )
 
         db.session.commit()
         if saved_any:
             _rebuild_bank()
-        return {"count": len(results), "matches": results}
+        return {
+            "count": len(results),
+            "matches": results,
+            "bank_size": len(bank),
+            "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
+        }
 
     @app.post("/api/embeddings/refresh")
     def refresh_embeddings():
