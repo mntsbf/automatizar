@@ -368,9 +368,17 @@ def create_app(testing: bool = False) -> Flask:
         spoof_threshold = float(request.form.get("spoof_threshold", _get_setting_value("spoof_threshold", "0.5")))
         live_check = request.form.get("live_check", "false").lower() == "true"
 
-        bank = _get_bank()
+        # Permite forzar la recarga del banco en cada consulta (útil si hubo
+        # subidas recientes y el proceso corre con múltiples workers).
+        force_bank = request.form.get("refresh_bank", "true").lower() == "true"
+        bank = _get_bank(force=force_bank)
         if not bank:
-            return {"resultado": "desconocido", "mensaje": "No hay embeddings registrados"}, 404
+            return {
+                "resultado": "desconocido",
+                "mensaje": "No hay embeddings registrados",
+                "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
+                "bank_size": 0,
+            }, 404
 
         detections = robust_detect_and_encode(
             bgr,
@@ -421,6 +429,7 @@ def create_app(testing: bool = False) -> Flask:
                 "bbox": best_payload.get("bbox"),
                 "live": best_payload.get("live", True),
                 "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
+                "bank_size": len(bank),
             }
 
         return {
@@ -428,6 +437,7 @@ def create_app(testing: bool = False) -> Flask:
             "mensaje": "No se encontró una coincidencia bajo el umbral",
             "similaridad_maxima": round(float(fallback_similarity or 0.0), 4),
             "bank_version": _EMBEDDING_BANK_CACHE.get("version"),
+            "bank_size": len(bank),
         }
 
     @app.post("/api/recognize")
