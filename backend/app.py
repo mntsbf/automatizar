@@ -390,10 +390,11 @@ def create_app(testing: bool = False) -> Flask:
     CORS(app)
     db.init_app(app)
 
-    if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite://"):
-        from sqlalchemy import event
+    sqlite_uri = app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite://")
 
-        @event.listens_for(db.engine, "connect")
+    if sqlite_uri:
+        # Define the hook here but register it inside the application context to avoid
+        # touching the engine while no app is bound (which triggers a context error).
         def _set_sqlite_pragmas(dbapi_connection, connection_record):  # pragma: no cover - engine hook
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA journal_mode=WAL;")
@@ -401,6 +402,11 @@ def create_app(testing: bool = False) -> Flask:
             cursor.close()
 
     with app.app_context():
+        if sqlite_uri:
+            from sqlalchemy import event
+
+            engine = db.engine
+            event.listen(engine, "connect", _set_sqlite_pragmas)
         db.create_all()
         ensure_sqlite_schema(db)
         _ensure_default_settings()
