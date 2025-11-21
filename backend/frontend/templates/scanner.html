@@ -34,6 +34,11 @@
           <div class="col-md-4">
             <label class="form-label">Opciones</label>
             <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="scan-simple" checked />
+              <label class="form-check-label" for="scan-simple">Modo simple (solo frente)</label>
+              <div class="form-text">Si lo desactivas, se pedirán giros y sonrisa.</div>
+            </div>
+            <div class="form-check">
               <input class="form-check-input" type="checkbox" id="scan-live" checked />
               <label class="form-check-label" for="scan-live">Anti-spoofing activo</label>
             </div>
@@ -60,7 +65,7 @@
         </div>
         <div class="alert alert-info mt-3 d-flex align-items-center gap-2" id="scan-hint">
           <i class="bi bi-info-circle"></i>
-          <div>Prepárate para el siguiente paso.</div>
+          <div>Alinea tu rostro dentro del marco azul. En modo simple solo necesitas mirar al frente.</div>
         </div>
         <div class="row g-3 mt-2" id="scan-previews"></div>
       </div>

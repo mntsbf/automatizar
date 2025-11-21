@@ -1,10 +1,18 @@
-const steps = [
-  { id: 'frente', label: 'Mirar al frente', hint: 'Mira fijo a la cámara.' },
+const guidedSteps = [
+  { id: 'frente', label: 'Mirar al frente', hint: 'Mira fijo a la cámara y alinea tu rostro en el cuadro azul.' },
   { id: 'derecha', label: 'Girar a la derecha', hint: 'Gira suavemente tu cabeza a la derecha.' },
   { id: 'izquierda', label: 'Girar a la izquierda', hint: 'Gira ahora hacia la izquierda.' },
   { id: 'arriba', label: 'Levantar la cabeza', hint: 'Levanta la barbilla y mira ligeramente hacia arriba.' },
   { id: 'abajo', label: 'Bajar la cabeza', hint: 'Baja la mirada con la cabeza hacia abajo.' },
   { id: 'sonreir', label: 'Sonreír', hint: 'Sonríe mostrando los dientes.' },
+];
+
+const simpleSteps = [
+  {
+    id: 'frente',
+    label: 'Captura rápida',
+    hint: 'Alinea tu cara dentro del cuadro azul y espera la captura automática (no se exigen giros).',
+  },
 ];
 
 let currentStep = 0;
@@ -33,6 +41,7 @@ const refreshCheck = document.getElementById('scan-refresh');
 const autoCheck = document.getElementById('scan-auto');
 const deviceSelect = document.getElementById('scan-device');
 const guideCanvas = document.getElementById('scan-guide');
+const simpleCheck = document.getElementById('scan-simple');
 
 const overlayText = document.querySelector('#scan-overlay span');
 
@@ -81,6 +90,13 @@ function drawGuide(bbox = null) {
   ctx.lineWidth = 1;
   ctx.strokeRect(x - 12, y - 12, size + 24, size + 24);
 
+  ctx.fillStyle = 'rgba(13, 110, 253, 0.12)';
+  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = '#0d6efd';
+  ctx.font = '16px "Inter", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Alinea tu rostro aquí', w / 2, y - 10);
+
   if (bbox) {
     const [top, right, bottom, left] = bbox;
     ctx.strokeStyle = 'rgba(25, 135, 84, 0.95)';
@@ -91,9 +107,14 @@ function drawGuide(bbox = null) {
   }
 }
 
+function getSteps() {
+  return simpleCheck?.checked ? simpleSteps : guidedSteps;
+}
+
 function renderSteps() {
   if (!stepsList) return;
   stepsList.innerHTML = '';
+  const steps = getSteps();
   steps.forEach((step, idx) => {
     const active = idx === currentStep;
     const done = idx < currentStep;
@@ -271,6 +292,7 @@ async function sendFrame(step, shot) {
   const formData = new FormData();
   formData.append('image', shot.blob, `${step.id}.jpg`);
   formData.append('action', step.id);
+  if (simpleCheck?.checked) formData.append('simple_mode', 'true');
   if (liveCheck?.checked) formData.append('live_check', 'true');
   if (refreshCheck?.checked) formData.append('refresh_bank', 'true');
   if (saveCheck?.checked) formData.append('save_photo', 'true');
@@ -295,19 +317,20 @@ async function handleFrame(step) {
   }
 
   try {
-    const { ok, payload } = await sendFrame(step, shot);
-    if (payload.ok) {
-      embeddings.push(payload.embedding);
-      previews.push(payload.embedding);
-      addPreview(shot.dataUrl, step, payload.quality || 0);
-      currentStep += 1;
-      setStatus(payload.message || 'Paso validado', 'success');
-      drawGuide(payload.bbox || null);
-      renderSteps();
+  const { ok, payload } = await sendFrame(step, shot);
+  if (payload.ok) {
+    embeddings.push(payload.embedding);
+    previews.push(payload.embedding);
+    addPreview(shot.dataUrl, step, payload.quality || 0);
+    currentStep += 1;
+    setStatus(payload.message || 'Paso validado', 'success');
+    drawGuide(payload.bbox || null);
+    renderSteps();
+      const steps = getSteps();
       if (currentStep >= steps.length) {
         await finalizeScan();
       }
-    } else {
+  } else {
       const reason = payload.reason || (ok ? 'sin_match' : 'error');
       const color = reason === 'no_face' ? 'warning' : 'danger';
       setStatus(payload.message || describeReason(reason), color);
@@ -325,6 +348,7 @@ function startLiveLoop() {
   if (liveLoop) return;
   liveLoop = true;
   const loop = async () => {
+    const steps = getSteps();
     if (!liveLoop || currentStep >= steps.length) return;
     const step = steps[currentStep];
     if (step) await handleFrame(step);
@@ -338,6 +362,7 @@ async function captureStep() {
     setStatus('Sin cámara', 'danger');
     return;
   }
+  const steps = getSteps();
   const step = steps[currentStep];
   if (!step) return;
   captureBtn.disabled = true;
@@ -391,6 +416,16 @@ if (autoCheck)
   autoCheck.addEventListener('change', () => {
     if (autoCheck.checked && stream) startLiveLoop();
     else stopLiveLoop();
+  });
+
+if (simpleCheck)
+  simpleCheck.addEventListener('change', () => {
+    currentStep = 0;
+    embeddings = [];
+    previews = [];
+    previewsBox.innerHTML = '';
+    renderSteps();
+    setStatus(simpleCheck.checked ? 'Modo simple (1 paso)' : 'Modo guiado', 'secondary');
   });
 
 if (video) {

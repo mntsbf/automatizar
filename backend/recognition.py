@@ -633,10 +633,11 @@ def analyze_scan_frame(
     *,
     live_check: bool = True,
     spoof_threshold: float = DEFAULT_SPOOF_THRESHOLD,
-    quality_threshold: float = 0.5,
+    quality_threshold: float = 0.4,
     yaw_threshold: float = 6.0,
     pitch_threshold: float = 4.0,
     smile_threshold: float = 1.0,
+    simple_mode: bool = False,
 ) -> dict:
     """Evalúa un frame para un paso guiado (giro, sonrisa, etc.)."""
 
@@ -658,6 +659,31 @@ def analyze_scan_frame(
 
     ordered = sorted(detections, key=lambda d: d.get("quality", 0.0), reverse=True)
     best = ordered[0]
+
+    # En modo simple solo exigimos calidad mínima y bounding box centrado; no pedimos giros/sonrisa.
+    if simple_mode:
+        if best.get("quality", 0.0) < quality_threshold:
+            return {
+                "ok": False,
+                "reason": "baja_calidad",
+                "message": "Acércate al marco azul o mejora la luz (modo simple)",
+                "quality": best.get("quality"),
+                "bbox": best.get("bbox"),
+                "pose": best.get("pose"),
+                "count": len(detections),
+            }
+        return {
+            "ok": True,
+            "reason": "simple_mode",
+            "message": "Captura rápida validada",
+            "embedding": best.get("embedding"),
+            "quality": best.get("quality"),
+            "live": best.get("live", True),
+            "bbox": best.get("bbox"),
+            "pose": best.get("pose"),
+            "count": len(detections),
+        }
+
     pose = best.get("pose") or _pose_from_landmarks(best.get("landmarks"), best.get("bbox"))
     # Confianza aproximada: landmarks presentes => 1.0; sin landmarks, dependerá del tamaño de bbox.
     bbox = best.get("bbox")
