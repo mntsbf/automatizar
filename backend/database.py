@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect, text
+
+# A single SQLAlchemy instance shared across the app
+# Models import this object to declare their tables.
+db = SQLAlchemy()
+
+
+def ensure_sqlite_schema(db):
+    """Lightweight, in-app schema alignment for SQLite deployments.
+
+    Older demo databases might miss new columns (e.g., rut/list_tag on persons).
+    This helper issues ALTER TABLE statements when needed so the app can start
+    without requiring an external migration tool.
+    """
+
+    engine = db.engine
+    if engine.dialect.name != "sqlite":
+        return
+
+    inspector = inspect(engine)
+
+    def _ensure_columns(table: str, columns: dict[str, str]):
+        existing = {col["name"] for col in inspector.get_columns(table)}
+        for name, ddl in columns.items():
+            # Protect against malformed definitions (e.g., empty names) that could
+            # surface from partial edits or bad merges, which would otherwise emit
+            # invalid ALTER TABLE statements like "ADD COLUMN VARCHAR(50)".
+            if not name or not name.strip():
+                continue
+            if not ddl or not ddl.strip():
+                continue
+            if name in existing:
+                continue
+            # SQLAlchemy 2.x removed engine.execute; use an explicit connection.
+            stmt = text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+            with engine.begin() as conn:
+                conn.execute(stmt)
+
+    # Align the persons table with new optional fields
+    _ensure_columns(
+        "persons",
+        {
+            "rut": "VARCHAR(50)",
+            "role": "VARCHAR(120)",
+            "list_tag": "VARCHAR(50)",
+        },
+    )
+

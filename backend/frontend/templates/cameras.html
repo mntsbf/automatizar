@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}Cámaras | FaceHub{% endblock %}
+{% block header_title %}Inventario de cámaras{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Agregar cámara</span>
+        <span class="badge bg-primary-subtle text-primary" id="camera-total">0 registradas</span>
+      </div>
+      <div class="card-body">
+        <form id="camera-form" class="needs-validation" novalidate>
+          <div class="mb-3">
+            <label class="form-label">Nombre</label>
+            <input class="form-control" name="name" required />
+            <div class="invalid-feedback">Ingresa un nombre.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">RTSP / ONVIF</label>
+            <input class="form-control" name="rtsp_url" placeholder="rtsp://" required />
+            <div class="form-text">No expongas el DVR, usa la red interna.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Sede</label>
+            <select class="form-select" name="site_id" id="camera-site" required></select>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">Guardar cámara</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-0">Cámaras registradas</h6>
+          <small class="text-muted">Estados y ubicación</small>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" id="cameras-refresh"><i class="bi bi-arrow-clockwise me-1"></i>Actualizar</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Nombre</th>
+              <th>Sede</th>
+              <th>RTSP / ONVIF</th>
+              <th>Alertas 24h</th>
+            </tr>
+          </thead>
+          <tbody id="cameras-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='cameras.js') }}"></script>
+{% endblock %}

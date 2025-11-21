@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block title %}Configuración | FaceHub{% endblock %}
+{% block header_title %}Parámetros del motor{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-12 col-xl-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-0">Reconocimiento</h6>
+          <small class="text-muted">Tolerancias y umbrales</small>
+        </div>
+        <span class="badge bg-primary-subtle text-primary">Global</span>
+      </div>
+      <div class="card-body">
+        <form id="settings-form">
+          <div class="mb-3">
+            <label class="form-label">Tolerancia (cosine)</label>
+            <input class="form-control" name="tolerance" type="number" min="0" max="1" step="0.01" required />
+            <div class="form-text">Menor valor = más estricto. Recomendado 0.70 - 0.78.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Margen mínimo entre candidato 1 y 2</label>
+            <input class="form-control" name="margin" type="number" min="0" max="1" step="0.01" required />
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" role="switch" id="setting-live" name="live_refresh">
+            <label class="form-check-label" for="setting-live">Refresco en vivo (SSE)</label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Tema del dashboard</label>
+            <select class="form-select" name="theme">
+              <option value="dark">Oscuro</option>
+              <option value="light">Claro</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" type="submit">Guardar cambios</button>
+          <span class="text-success small ms-2" id="settings-status"></span>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-0">Buenas prácticas</h6>
+          <small class="text-muted">Aplica para operadores y admins</small>
+        </div>
+        <i class="bi bi-shield-check text-success"></i>
+      </div>
+      <div class="card-body">
+        <ul class="list-group list-group-flush small">
+          <li class="list-group-item">Mantén la base de embeddings balanceada y actualizada con fotos recientes.</li>
+          <li class="list-group-item">Usa RTSP interno y evita exponer DVRs a internet.</li>
+          <li class="list-group-item">Configura listas negras y grises desde la sección de personas para priorizar alertas.</li>
+          <li class="list-group-item">Si el backend usa el modo liviano, prueba con varias fotos y ajusta la tolerancia.</li>
+          <li class="list-group-item">Documenta sedes y cámaras para que los operadores identifiquen rápido la fuente de la alerta.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='config.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}FaceHub Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="bg-light">
+  <div class="d-flex" id="layout-wrapper">
+    <nav id="sidebar" class="bg-dark text-white">
+      <div class="p-3 mb-3 border-bottom border-secondary d-flex align-items-center gap-2">
+        <span class="fs-4 fw-bold">FaceHub</span>
+        <span class="badge bg-success">Central</span>
+      </div>
+      {% set current = request.path %}
+      <ul class="nav flex-column">
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/dashboard') else 'text-white-50' }}" href="{{ url_for('dashboard') }}">
+            <i class="bi bi-speedometer2 me-2"></i>Inicio
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/alertas') else 'text-white-50' }}" href="{{ url_for('alertas_view') }}">
+            <i class="bi bi-bell-fill me-2 text-danger"></i>Alertas
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/camaras') else 'text-white-50' }}" href="{{ url_for('camaras_view') }}">
+            <i class="bi bi-camera-video-fill me-2"></i>Cámaras
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/personas') else 'text-white-50' }}" href="{{ url_for('personas_view') }}">
+            <i class="bi bi-people-fill me-2"></i>Personas
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/buscar-persona') else 'text-white-50' }}" href="{{ url_for('buscar_persona_view') }}">
+            <i class="bi bi-search me-2"></i>Buscar persona
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/scan') else 'text-white-50' }}" href="{{ url_for('scan_view') }}">
+            <i class="bi bi-person-video3 me-2"></i>Escaneo vivo
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if current.startswith('/config') else 'text-white-50' }}" href="{{ url_for('config_view') }}">
+            <i class="bi bi-gear-fill me-2"></i>Configuración
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <div class="flex-grow-1" id="content">
+      <header class="bg-white shadow-sm px-4 py-3 d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small text-muted">Panel centralizado</div>
+          <h6 class="mb-0">{% block header_title %}Tablero de vigilancia{% endblock %}</h6>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+          <button class="btn btn-outline-secondary btn-sm position-relative" aria-label="Notificaciones">
+            <i class="bi bi-bell"></i>
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="notification-badge">0</span>
+          </button>
+          <div class="d-flex align-items-center gap-2">
+            <div class="avatar-circle">{{ user_name[0]|default('A') }}</div>
+            <div>
+              <div class="fw-semibold">{{ user_name|default('Administrador') }}</div>
+              <div class="text-muted small">{{ user_role|default('Admin') }}</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="p-4">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

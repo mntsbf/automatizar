@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+
+{% block title %}Escáner vivo | FaceHub{% endblock %}
+{% block header_title %}Escaneo guiado con liveness{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-12 col-xl-7">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-0">Captura guiada</h6>
+          <small class="text-muted">Pide movimientos para validar vida y mejorar el embedding</small>
+        </div>
+        <span class="badge bg-dark-subtle text-dark" id="scan-status">Listo</span>
+      </div>
+      <div class="card-body">
+        <div class="ratio ratio-16x9 bg-dark rounded position-relative overflow-hidden">
+          <video id="scan-video" autoplay playsinline class="w-100 h-100 object-fit-cover"></video>
+          <canvas id="scan-guide" class="position-absolute top-0 start-0 w-100 h-100"></canvas>
+          <div id="scan-overlay" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center text-white fw-semibold bg-dark bg-opacity-50" hidden>
+            <span>Cámara detenida</span>
+          </div>
+        </div>
+        <div class="row g-3 mt-3">
+          <div class="col-md-4">
+            <label class="form-label">Persona (opcional)</label>
+            <select class="form-select" id="scan-person"></select>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="scan-save" checked />
+              <label class="form-check-label" for="scan-save">Guardar cada frame en la galería</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Opciones</label>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="scan-simple" checked />
+              <label class="form-check-label" for="scan-simple">Modo simple (solo frente)</label>
+              <div class="form-text">Si lo desactivas, se pedirán giros y sonrisa.</div>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="scan-live" checked />
+              <label class="form-check-label" for="scan-live">Anti-spoofing activo</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="scan-auto" checked />
+              <label class="form-check-label" for="scan-auto">Captura en vivo (auto)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="scan-refresh" />
+              <label class="form-check-label" for="scan-refresh">Forzar recarga de banco</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Cámara</label>
+            <select class="form-select mb-2" id="scan-device">
+              <option value="">Predeterminada</option>
+            </select>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary w-100" id="scan-start"><i class="bi bi-camera-video"></i> Encender</button>
+              <button class="btn btn-primary w-100" id="scan-capture" disabled><i class="bi bi-record-circle"></i> Capturar</button>
+            </div>
+            <div class="form-text">Si accedes por IP o red local, usa https o localhost para que el navegador habilite la cámara.</div>
+          </div>
+        </div>
+        <div class="alert alert-info mt-3 d-flex align-items-center gap-2" id="scan-hint">
+          <i class="bi bi-info-circle"></i>
+          <div>Alinea tu rostro dentro del marco azul. En modo simple solo necesitas mirar al frente.</div>
+        </div>
+        <div class="row g-3 mt-2" id="scan-previews"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-5">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center">
+          <span>Pasos de liveness</span>
+          <span class="badge bg-primary" id="scan-progress">0/0</span>
+        </div>
+      </div>
+      <div class="list-group list-group-flush" id="scan-steps"></div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Resultado</span>
+        <button class="btn btn-sm btn-outline-secondary" id="scan-reset"><i class="bi bi-arrow-counterclockwise"></i> Reiniciar</button>
+      </div>
+      <div class="card-body" id="scan-result">
+        <p class="text-muted mb-0">Aún no se combinan embeddings.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='scanner.js') }}"></script>
+{% endblock %}
